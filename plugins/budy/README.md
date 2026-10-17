@@ -1,9 +1,9 @@
 # budy
 
 Playful desk buddy for OpenCode: mirrors CLI activity onto the ESP32-S3 RLCD
-avatar (board repo: [ESP32-S3-AI](https://github.com/Jutipong/ESP32-S3-AI))
-as `{"event":"..."}` lines over USB CDC. Ported from the "avatar" plugin v6 —
-same state machine, renamed id/files/env vars.
+buddy screen (board repo: [ESP32-S3-AI](https://github.com/Jutipong/ESP32-S3-AI))
+as `{"event":"..."}` lines over USB CDC. Ported from the legacy "avatar" plugin
+v6 — same state machine, renamed id/files/env vars.
 
 - `working` while a tool runs · `thinking` while the turn/stream is live ·
   `speaking` while the answer text streams (600 ms throttle)
@@ -82,4 +82,4 @@ stalls, play pulses, nap/wake. Must print `ALL TESTS PASSED`.
 - The heartbeat resends the current state every 30 s (+jitter) but only after
   real activity (it never yanks the board's clock screen when idle).
 - Wire protocol: newline-delimited JSON `{"event":"<pose>"}`; one writer at a
-  time; the board acks only while its avatar screen is shown.
+  time; the board acks only while its buddy screen is shown.

@@ -6,9 +6,10 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 // budy — playful OpenCode buddy plugin (OpenCode v2 API). Mirrors CLI
-// activity onto the ESP32-S3 RLCD avatar as generic {"event":"..."} lines
-// over USB CDC. Ported from the "avatar" plugin v6 with a naming-layer change
-// only (id / file names / env vars); the state machine is identical.
+// activity onto the ESP32-S3 RLCD buddy screen as generic {"event":"..."}
+// lines over USB CDC. Ported from the legacy "avatar" plugin v6 with a
+// naming-layer change only (id / file names / env vars); the state machine is
+// identical.
 //
 // v1 "playful buddy": v6's guarded state machine + a personality layer.
 //   working   : a tool is in flight
@@ -104,11 +105,11 @@ function spawnSender(cmd, args) {
   });
 }
 
-async function send(avatar, src) {
+async function send(buddy, src) {
   // fast path: node + serialport (~200ms incl. startup); fallback: powershell
-  const fast = ["node", [SEND_MJS, avatar]];
+  const fast = ["node", [SEND_MJS, buddy]];
   const slow = ["powershell",
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", SEND_PS1, "-Event", avatar]];
+    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", SEND_PS1, "-Event", buddy]];
   for (let i = 0; i < 3; i++) {
     if (i > 0) await new Promise((r) => setTimeout(r, 400 * i));
     if (await spawnSender(...(i === 0 ? fast : slow))) return;
@@ -116,14 +117,14 @@ async function send(avatar, src) {
     if (i === 0) continue;
   }
   // note: attempt order is fast, slow, slow (i=1,2 use slow after first fail)
-  log("sender failed after retries:", avatar, "src=" + src);
+  log("sender failed after retries:", buddy, "src=" + src);
 }
 
 export default Plugin.define({
   id: "budy",
   async setup(ctx) {
-    log("setup loaded budy v1 (avatar-v6 core)");
-    let current = null; // last avatar state sent
+    log("setup loaded budy v1 (legacy avatar-v6 core)");
+    let current = null; // last buddy state sent
     let idleTimer = null;
     let beat = null;
     let poseTimer = null; // pending "revert" after a short pose
@@ -173,11 +174,11 @@ export default Plugin.define({
     };
 
     // --- low level --------------------------------------------------------
-    const sendState = (avatar, src) => {
-      current = avatar;
+    const sendState = (buddy, src) => {
+      current = buddy;
       armHeartbeat();
-      log("send:", avatar, "src=" + src);
-      void send(avatar, src);
+      log("send:", buddy, "src=" + src);
+      void send(buddy, src);
     };
 
     const cancelPose = () => {
@@ -195,10 +196,10 @@ export default Plugin.define({
     };
 
     // real state change (working/thinking/idle/...): pulses are cancelled
-    const publish = (avatar, src) => {
+    const publish = (buddy, src) => {
       cancelPose();
-      sendState(avatar, src);
-      if (avatar !== "sleeping") napping = false;
+      sendState(buddy, src);
+      if (buddy !== "sleeping") napping = false;
       scheduleIdle();
     };
 

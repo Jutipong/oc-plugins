@@ -1,8 +1,9 @@
 # Agent rules — oc-plugins (OpenCode plugins by Jutipong)
 
 Monorepo for OpenCode V2 plugins. First plugin: **budy** — a playful desk
-buddy that mirrors OpenCode activity onto an ESP32-S3 RLCD avatar (ported
-from the ESP32-S3-AI repo's "avatar" plugin v6; the board side lives there).
+buddy that mirrors OpenCode activity onto an ESP32-S3 RLCD buddy screen
+(ported from the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side
+lives there).
 
 ## Commits — explicit confirmation required
 
@@ -83,6 +84,6 @@ from the ESP32-S3-AI repo's "avatar" plugin v6; the board side lives there).
   one COM port, collisions are normal. Never hold COM open persistently.
 - The board side (firmware + SD art, 14 pose names) lives in the
   **ESP32-S3-AI** repo (`Waveshare_ESP32_RLCD_integration_Git_V2.ino`,
-  README "Avatar protocol"). A pose that is not in both the firmware event
+  README "Buddy protocol"). A pose that is not in both the firmware event
   list and the SD falls back to `idle`. Wire format: newline-delimited JSON
   `{"event":"<name>"}` at 115200 baud.

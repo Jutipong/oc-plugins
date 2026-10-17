@@ -1,4 +1,4 @@
-# Send one budy event line to the ESP32-S3 RLCD avatar display over USB CDC.
+# Send one budy event line to the ESP32-S3 RLCD buddy screen over USB CDC.
 # Usage: budy-send.ps1 -Event speaking [-Port COM5]
 param(
   [Parameter(Mandatory = $true)][string]$Event,

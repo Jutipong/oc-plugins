@@ -28,7 +28,7 @@
 1. ตรวจไฟล์ทั้งหมด → `git add -A` → **commit แรก** → **push**:
    `git push -u origin main` (repo GitHub สร้างว่างไว้แล้ว)
 2. ฝั่ง ESP32-S3-AI (`D:\code\ESP32-S3-AI`): ลบ `opencode-plugins/` +
-   แก้ `AGENTS.md`/`README.md`/`avatar/AGENTS.md` = **staged แล้ว รอคำสั่ง
+   แก้ `AGENTS.md`/`README.md`/`buddy/AGENTS.md` = **staged แล้ว รอคำสั่ง
    commit** จาก session นั้น (หรือที่นี่: `git -C D:\code\ESP32-S3-AI ...`)
 3. (ตัวเลือก ยังไม่ทำ) LICENSE, เทมเพลต `plugins/_template`, CI, ลบ
    `~/.config/opencode/plugin-test/` ของเก่า (ย้ายเข้า repo แล้ว)
@@ -42,4 +42,4 @@
   ตัว OpenCode เอง — เกิดกับปลั๊กอินเดิมด้วย) ไม่ใช่การ reload จริงถี่ ๆ
 - debug: `BUDY_DEBUG=1` แล้ว restart OpenCode → log ที่
   `~/.config/opencode/plugins/budy-debug.log`
-- โปรโตคอล/ฝั่งบอร์ด: ดู README ของ repo ESP32-S3-AI หัวข้อ "Avatar protocol"
+- โปรโตคอล/ฝั่งบอร์ด: ดู README ของ repo ESP32-S3-AI หัวข้อ "Buddy protocol"

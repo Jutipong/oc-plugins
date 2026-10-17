@@ -261,7 +261,7 @@ for (let i = 0; i < 10; i++) {
 expectNo("N1 deltas keep it busy", nStart, "idle");
 expectLast("N2 state unchanged by noise", "thinking");
 
-console.log("\nP. SSE tail right behind the turn end must not wake the avatar");
+console.log("\nP. SSE tail right behind the turn end must not wake the buddy");
 pushEvent(ev("session.execution.started", "s4"));
 await sleep(20);
 expectLast("P1 execution.started -> thinking", "thinking");
