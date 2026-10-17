@@ -1,0 +1,14 @@
+{
+  "name": "budy",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Playful OpenCode buddy: mirrors CLI activity onto the ESP32-S3 RLCD avatar over USB CDC",
+  "type": "module",
+  "main": "index.js",
+  "scripts": {
+    "test": "node test/harness.mjs"
+  },
+  "dependencies": {
+    "serialport": "^13.0.0"
+  }
+}
