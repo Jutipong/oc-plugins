@@ -42,7 +42,8 @@ import { fileURLToPath } from "node:url";
 
 const HERE = path.dirname(fileURLToPath(import.meta.url));
 const LIVE_DIR = path.join(os.homedir(), ".config", "opencode", "plugins");
-const envOr = (...names) => names.map((n) => process.env[n]).find(Boolean) || null;
+const firstEnv = (env, ...names) => names.map((n) => env[n]).find(Boolean) || null;
+const envOr = (...names) => firstEnv(process.env, ...names);
 const firstExisting = (...cands) => cands.find((p) => fs.existsSync(p)) || cands[cands.length - 1];
 
 // senders: env override -> next to this file (repo / copied plugin.js) -> live config dir
@@ -52,6 +53,41 @@ const SEND_MJS =
 const SEND_PS1 =
   envOr("ESP_BUDDY_SEND_PS1", "BUDY_SEND_PS1", "AVATAR_SEND_PS1") ||
   firstExisting(path.join(HERE, "esp-buddy-send.ps1"), path.join(LIVE_DIR, "esp-buddy-send.ps1"));
+
+// --- serial port --------------------------------------------------------
+// Resolution order: env override -> platform default. A host with no board
+// attached must not spawn anything: every send used to start a node process,
+// fail on a missing COM5 (macOS), retry, and burn CPU for nothing.
+const PORT_ENV = ["ESP_BUDDY_COM", "BUDY_COM", "AVATAR_COM"];
+const DEFAULT_WIN_PORT = "COM5";
+// macOS exposes a USB CDC device (ESP32-S3) as /dev/cu.usbmodem*.
+const DARWIN_PORT = /^(?:cu|tty)\.(?:usbmodem|usbserial|SLAB_USBtoUART|wchusbserial)/;
+
+export function resolvePort({
+  env = process.env,
+  platform = process.platform,
+  readdir = fs.readdirSync,
+  exists = fs.existsSync,
+} = {}) {
+  const override = firstEnv(env, ...PORT_ENV);
+  if (override) {
+    // An unplugged board leaves a stale path (e.g. BUDY_COM=/dev/cu.usbmodem1101)
+    // behind: treat it as "no device" instead of spawning for a ghost port.
+    if (platform !== "win32" && !exists(override)) return null;
+    return override;
+  }
+  if (platform === "win32") return DEFAULT_WIN_PORT;
+  if (platform !== "darwin") return null;
+  try {
+    const names = readdir("/dev") || [];
+    // "cu." sorts before "tty." and "usbmodem" before "usbserial"
+    const match = names.filter((name) => DARWIN_PORT.test(name)).sort()[0];
+    return match ? `/dev/${match}` : null;
+  } catch {
+    return null;
+  }
+}
+
 const LOG = path.join(LIVE_DIR, "esp-buddy-debug.log");
 const DEBUG =
   process.env.ESP_BUDDY_DEBUG === "1" ||
@@ -83,7 +119,7 @@ function log(...args) {
   } catch {}
 }
 
-function spawnSender(cmd, args) {
+function spawnSender(cmd, args, port) {
   return new Promise((resolve) => {
     let done = false;
     const finish = (ok) => {
@@ -93,7 +129,12 @@ function spawnSender(cmd, args) {
       }
     };
     try {
-      const child = execFile(cmd, args, { timeout: 5000, windowsHide: true }, (err) => finish(!err));
+      const child = execFile(
+        cmd,
+        args,
+        { timeout: 5000, windowsHide: true, env: { ...process.env, ESP_BUDDY_COM: port } },
+        (err) => finish(!err),
+      );
       if (child && child.unref) child.unref();
       const t = setTimeout(() => {
         try {
@@ -108,19 +149,39 @@ function spawnSender(cmd, args) {
   });
 }
 
+let warnedNoPort = false;
+
 async function send(buddy, src) {
-  // fast path: node + serialport (~200ms incl. startup); fallback: powershell
-  const fast = ["node", [SEND_MJS, buddy]];
-  const slow = ["powershell",
-    ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", SEND_PS1, "-Event", buddy]];
-  for (let i = 0; i < 3; i++) {
-    if (i > 0) await new Promise((r) => setTimeout(r, 400 * i));
-    if (await spawnSender(...(i === 0 ? fast : slow))) return;
-    // fast path failed once: fall back to powershell immediately next
-    if (i === 0) continue;
+  // No board (or no sender) -> never spawn. Re-resolved on every send so a
+  // board plugged in later just works; the idle play pulse re-probes every
+  // ~10s, the heartbeat every 30s.
+  const port = resolvePort();
+  if (!port) {
+    if (!warnedNoPort) {
+      warnedNoPort = true;
+      log("no serial port (set " + PORT_ENV[0] + "); sends skipped");
+    }
+    return;
   }
-  // note: attempt order is fast, slow, slow (i=1,2 use slow after first fail)
-  log("sender failed after retries:", buddy, "src=" + src);
+  if (warnedNoPort) {
+    warnedNoPort = false;
+    log("serial port available:", port);
+  }
+
+  // fast path: node + serialport (~200ms incl. startup); on Windows the
+  // powershell sender is the fallback. Other platforms have no fallback.
+  const fast = fs.existsSync(SEND_MJS) ? ["node", [SEND_MJS, buddy], port] : null;
+  const slow = process.platform === "win32" && fs.existsSync(SEND_PS1)
+    ? ["powershell",
+      ["-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass", "-File", SEND_PS1, "-Event", buddy], port]
+    : null;
+  // attempt order on Windows stays fast, slow, slow
+  const plan = [fast, slow, slow].filter(Boolean);
+  for (let i = 0; i < plan.length; i++) {
+    if (i > 0) await new Promise((r) => setTimeout(r, 400 * i));
+    if (await spawnSender(...plan[i])) return;
+  }
+  log("sender failed after retries:", buddy, "src=" + src, "port=" + port);
 }
 
 export default Plugin.define({

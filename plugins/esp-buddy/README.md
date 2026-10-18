@@ -16,9 +16,14 @@ v6 — same state machine, ESP-specific naming (`esp-buddy`, `ESP_BUDDY_*`).
 
 ## Requirements
 
-- OpenCode V2, Windows host
-- `serialport` for the fast sender (node, ~200 ms); without it the plugin
-  falls back to PowerShell (~340 ms)
+- OpenCode V2 on macOS or Windows
+- `serialport` for the fast sender (node, ~200 ms); on Windows the plugin
+  falls back to PowerShell (~340 ms) when it is missing. macOS has no
+  PowerShell fallback — the node sender is the only path there
+- the board's serial port is auto-detected on macOS (`/dev/cu.usbmodem*`); on
+  Windows it defaults to `COM5` (`ESP_BUDDY_COM` overrides both)
+- **no board, no cost**: when the resolved port does not exist (unplugged
+  board, stale `BUDY_COM`) the plugin does not spawn a sender at all
 - Board side: the 14 poses must exist in the board firmware + SD:
   `idle listening thinking speaking happy excited success confused error
   sleeping working greeting wag curious` (see the board repo)
@@ -31,12 +36,12 @@ Recommended — load in place (this repo stays the source of truth):
 // ~/.config/opencode/opencode.jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["file:///D:/code/oc-plugins/plugins/esp-buddy"]
+  "plugins": ["file:///D:/code/oc-plugins/plugins/esp-buddy"] // macOS: file:///Users/you/SourceCode/oc-plugins/plugins/esp-buddy
 }
 ```
 
-```powershell
-cd D:\code\oc-plugins\plugins\esp-buddy
+```sh
+cd plugins/esp-buddy
 bun install        # serialport for the fast sender
 ```
 
@@ -60,7 +65,7 @@ Upgrading: delete the old `budy` and `avatar` live files —
 
 | var | default | meaning |
 |---|---|---|
-| `ESP_BUDDY_COM` (or legacy `BUDY_COM` / `AVATAR_COM`) | `COM5` | serial port of the board |
+| `ESP_BUDDY_COM` (or legacy `BUDY_COM` / `AVATAR_COM`) | auto-detect `/dev/cu.usbmodem*` (macOS) / `COM5` (Windows) | serial port of the board; a path that does not exist disables sends |
 | `ESP_BUDDY_DEBUG=1` (or legacy `BUDY_DEBUG` / `AVATAR_DEBUG`) | off | write `~/.config/opencode/plugins/esp-buddy-debug.log` (512 KB rotate) |
 | `ESP_BUDDY_SEND_MJS` / `ESP_BUDDY_SEND_PS1` (or legacy `BUDY_*` / `AVATAR_*`) | next to `index.js`, else the live plugins dir | override sender paths |
 | `ESP_BUDDY_PLUGIN_SRC` (or legacy `BUDY_PLUGIN_SRC`) | `../index.js` | harness-only: plugin under test |
@@ -73,13 +78,16 @@ bun run test        # or: node test/harness.mjs
 ```
 
 Mocks `@opencode/plugin` + `node:child_process`, runs a 100x virtual clock and
-holds the play timers; ~51 assertions over turn end, child sessions, stream
-stalls, play pulses, nap/wake. Must print `ALL TESTS PASSED`.
+holds the play timers; ~60 assertions over turn end, child sessions, stream
+stalls, play pulses, nap/wake, port resolution (macOS auto-detect, stale
+override) and the no-device guard. Must print `ALL TESTS PASSED`.
 
 ## Notes
 
 - Several OpenCode hosts can run at once; all share one COM port — every send
-  retries (node → powershell, backoff) and heartbeats add jitter.
+  retries (node → powershell on Windows, backoff) and heartbeats add jitter.
+- The port is re-resolved on every send, so plugging the board in later just
+  works and unplugging it stops the sender subprocesses immediately.
 - The heartbeat resends the current state every 30 s (+jitter) but only after
   real activity (it never yanks the board's clock screen when idle).
 - Wire protocol: newline-delimited JSON `{"event":"<pose>"}`; one writer at a

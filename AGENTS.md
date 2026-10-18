@@ -88,8 +88,12 @@ sidebar (no `mo` dependency).
   in-flight tools + a 15s model-active window) is a backstop.
 - Heartbeat resends the current state every 30s (+jitter) but ONLY after real
   activity — never yank the board's clock screen on an idle machine.
-- Every send retries (node → powershell, backoff): several hosts can share
-  one COM port, collisions are normal. Never hold COM open persistently.
+- Every send retries (node → powershell on Windows, backoff): several hosts can
+  share one COM port, collisions are normal. Never hold COM open persistently.
+- Port resolution (`resolvePort`, harness-tested): env override → macOS
+  `/dev/cu.usbmodem*` auto-detect → `COM5` on Windows. A resolved path that
+  does not exist (board unplugged / stale `BUDY_COM`) means **no spawn at all**;
+  the port is re-resolved per send so hot-plugging works without a restart.
 - The board side (firmware + SD art, 14 pose names) lives in the
   **ESP32-S3-AI** repo (`Waveshare_ESP32_RLCD_integration_Git_V2.ino`,
   README "Buddy protocol"). A pose that is not in both the firmware event

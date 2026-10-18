@@ -52,6 +52,13 @@ const firePlay = () => {
 let rngValue = 0.999;
 Math.random = () => rngValue;
 
+// A path that always exists keeps every send spawning (the mocked execFile
+// records it) even on a host with no board attached; /dev/null is only checked
+// on non-Windows platforms, so this works on the Windows dev machine too. The
+// no-device guard is tested separately.
+const TEST_PORT = "/dev/null";
+process.env.ESP_BUDDY_COM = TEST_PORT;
+
 const PLUGIN =
   process.env.ESP_BUDDY_PLUGIN_SRC ||
   process.env.BUDY_PLUGIN_SRC ||
@@ -117,7 +124,9 @@ const ctx = {
   event: { subscribe: () => eventIterable },
 };
 
-const plugin = (await import(pathToFileURL(PLUGIN).href)).default;
+const mod = await import(pathToFileURL(PLUGIN).href);
+const plugin = mod.default;
+const resolvePort = mod.resolvePort;
 const cleanup = await plugin.setup(ctx);
 console.log("setup done; hooks:",
   "tool=" + [...toolHooks.keys()].join(","),
@@ -355,6 +364,44 @@ await sleep(3);
 expectLast("V6 activity wakes -> greeting", "greeting");
 await sleep(20);
 expectLast("V7 greeting reverts -> thinking", "thinking");
+
+console.log("\nW. serial port resolution + no-device guard");
+const fakeReaddir = (list) => () => list;
+const macNames = ["cu.Bluetooth-Incoming-Port", "cu.usbmodem14201", "tty.usbmodem14201", "null"];
+expectTrue("W1 macOS auto-detect prefers cu.usbmodem*",
+  resolvePort({ env: {}, platform: "darwin", readdir: fakeReaddir(macNames) }) === "/dev/cu.usbmodem14201");
+expectTrue("W2 macOS without a USB device -> null",
+  resolvePort({ env: {}, platform: "darwin", readdir: fakeReaddir(["cu.Bluetooth-Incoming-Port", "cu.debug-console"]) }) === null);
+expectTrue("W3 env override beats auto-detect",
+  resolvePort({ env: { ESP_BUDDY_COM: "/dev/cu.custom" }, platform: "darwin", readdir: fakeReaddir(macNames), exists: () => true }) === "/dev/cu.custom");
+expectTrue("W3b stale override (board unplugged) -> null",
+  resolvePort({ env: { BUDY_COM: "/dev/cu.usbmodem1101" }, platform: "darwin", exists: () => false }) === null);
+expectTrue("W4 legacy BUDY_COM / AVATAR_COM still work",
+  resolvePort({ env: { AVATAR_COM: "COM7" }, platform: "win32" }) === "COM7");
+expectTrue("W5 Windows default stays COM5",
+  resolvePort({ env: {}, platform: "win32" }) === "COM5");
+expectTrue("W6 unsupported platform -> null (no spawn)",
+  resolvePort({ env: {}, platform: "linux" }) === null);
+
+// live guard: with the override removed and no board attached, a state change
+// must not spawn a child at all.
+const savedPort = process.env.ESP_BUDDY_COM;
+delete process.env.ESP_BUDDY_COM;
+const livePort = resolvePort();
+if (livePort) {
+  console.log(`  skip W7 (a real serial device is attached: ${livePort})`);
+} else {
+  const wBefore = sends.length;
+  toolHooks.get("execute.before")({ tool: "shell", id: "tw" });
+  await sleep(10);
+  expectTrue("W7 no device -> no child process spawned",
+    sends.length === wBefore, `(${sends.length - wBefore} sends)`);
+  process.env.ESP_BUDDY_COM = savedPort || TEST_PORT;
+  toolHooks.get("execute.after")({ tool: "shell", id: "tw", status: "completed", result: { output: { exit: 0 } } });
+  await sleep(5);
+  expectTrue("W8 port restored -> sends resume", sends.length > wBefore);
+}
+process.env.ESP_BUDDY_COM = savedPort || TEST_PORT;
 
 console.log("\nO. cleanup");
 try { if (typeof cleanup === "function") await cleanup(); console.log("  ok   cleanup ran"); }
