@@ -1,0 +1,14 @@
+{
+  "name": "go-usage",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OpenCode Go usage (rolling / weekly / monthly meters) in the OpenCode V2 CLI sidebar, with btop-style bars",
+  "type": "module",
+  "main": "tui.ts",
+  "exports": {
+    "./tui": "./tui.ts"
+  },
+  "scripts": {
+    "test": "node test/harness.mjs"
+  }
+}
