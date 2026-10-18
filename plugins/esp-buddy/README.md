@@ -1,9 +1,9 @@
-# budy
+# esp-buddy
 
 Playful desk buddy for OpenCode: mirrors CLI activity onto the ESP32-S3 RLCD
 buddy screen (board repo: [ESP32-S3-AI](https://github.com/Jutipong/ESP32-S3-AI))
 as `{"event":"..."}` lines over USB CDC. Ported from the legacy "avatar" plugin
-v6 — same state machine, renamed id/files/env vars.
+v6 — same state machine, ESP-specific naming (`esp-buddy`, `ESP_BUDDY_*`).
 
 - `working` while a tool runs · `thinking` while the turn/stream is live ·
   `speaking` while the answer text streams (600 ms throttle)
@@ -31,12 +31,12 @@ Recommended — load in place (this repo stays the source of truth):
 // ~/.config/opencode/opencode.jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["file:///D:/code/oc-plugins/plugins/budy"]
+  "plugins": ["file:///D:/code/oc-plugins/plugins/esp-buddy"]
 }
 ```
 
 ```powershell
-cd D:\code\oc-plugins\plugins\budy
+cd D:\code\oc-plugins\plugins\esp-buddy
 bun install        # serialport for the fast sender
 ```
 
@@ -45,29 +45,30 @@ then restart OpenCode.
 Fallback — copy mode (from the repo root):
 
 ```powershell
-.\install.ps1 -Plugin budy
+.\install.ps1 -Plugin esp-buddy
 ```
 
-copies `budy.js` + `budy-send.*` into `%USERPROFILE%\.config\opencode\plugins\`
+copies `esp-buddy.js` + `esp-buddy-send.*` into `%USERPROFILE%\.config\opencode\plugins\`
 (make sure `bun add serialport` has been run in `~/.config/opencode`).
 
-Upgrading from the old `avatar` plugin: delete
-`~/.config/opencode/plugins/avatar.js` + `avatar-send.*` afterwards — running
-both plugins doubles every event.
+Upgrading: delete the old `budy` and `avatar` live files —
+`~/.config/opencode/plugins/budy.js`, `budy-send.*`, `avatar.js`,
+`avatar-send.*` — and point the plugin path in `opencode.jsonc` at
+`plugins/esp-buddy`. Running two copies doubles every event.
 
 ## Env vars
 
 | var | default | meaning |
 |---|---|---|
-| `BUDY_COM` (or `AVATAR_COM`) | `COM5` | serial port of the board |
-| `BUDY_DEBUG=1` (or `AVATAR_DEBUG=1`) | off | write `~/.config/opencode/plugins/budy-debug.log` (512 KB rotate) |
-| `BUDY_SEND_MJS` / `BUDY_SEND_PS1` | next to `index.js`, else the live plugins dir | override sender paths |
-| `BUDY_PLUGIN_SRC` | `../index.js` | harness-only: plugin under test |
+| `ESP_BUDDY_COM` (or legacy `BUDY_COM` / `AVATAR_COM`) | `COM5` | serial port of the board |
+| `ESP_BUDDY_DEBUG=1` (or legacy `BUDY_DEBUG` / `AVATAR_DEBUG`) | off | write `~/.config/opencode/plugins/esp-buddy-debug.log` (512 KB rotate) |
+| `ESP_BUDDY_SEND_MJS` / `ESP_BUDDY_SEND_PS1` (or legacy `BUDY_*` / `AVATAR_*`) | next to `index.js`, else the live plugins dir | override sender paths |
+| `ESP_BUDDY_PLUGIN_SRC` (or legacy `BUDY_PLUGIN_SRC`) | `../index.js` | harness-only: plugin under test |
 
 ## Test (offline)
 
 ```powershell
-cd plugins\budy
+cd plugins\esp-buddy
 bun run test        # or: node test/harness.mjs
 ```
 

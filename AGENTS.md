@@ -1,6 +1,6 @@
 # Agent rules — oc-plugins (OpenCode plugins by Jutipong)
 
-Monorepo for OpenCode V2 plugins. First plugin: **budy** — a playful desk
+Monorepo for OpenCode V2 plugins. First plugin: **esp-buddy** — a playful desk
 buddy that mirrors OpenCode activity onto an ESP32-S3 RLCD buddy screen
 (ported from the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side
 lives there).
@@ -19,8 +19,8 @@ lives there).
   - `package.json` — `private: true`, `main: "index.js"`, runtime deps only
   - `test/harness.mjs` + `test/mock-loader.mjs` — offline state-machine test
   - `README.md` — install, env vars, behavior
-- Env vars are prefixed with the plugin name (`BUDY_*`); legacy `AVATAR_*`
-  names are accepted as fallbacks where compatibility matters.
+- Env vars are prefixed with the plugin name (`ESP_BUDDY_*`); legacy `BUDY_*`
+  and `AVATAR_*` names are accepted as fallbacks where compatibility matters.
 - Senders resolve: env override → next to `index.js` → the live config dir
   (`~/.config/opencode/plugins/`). Debug logs go to
   `~/.config/opencode/plugins/<name>-debug.log`, OFF unless `<NAME>_DEBUG=1`,
@@ -64,7 +64,7 @@ lives there).
   complete (timers + hook registrations) and treat duplicate instances as
   normal (they are benign; each has its own state).
 
-## budy specifics
+## esp-buddy specifics
 
 - State model: `working` while any tool is in flight; `thinking` while a
   turn/stream is live; `speaking` while assistant text streams (throttled

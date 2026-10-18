@@ -2,11 +2,11 @@
 # folder (fallback for environments that do not load plugin folders in place).
 #
 # Usage:
-#   .\install.ps1              # install "budy"
-#   .\install.ps1 -Plugin budy
+#   .\install.ps1              # install "esp-buddy"
+#   .\install.ps1 -Plugin esp-buddy
 #   .\install.ps1 -List        # list available plugins
 param(
-  [string]$Plugin = "budy",
+  [string]$Plugin = "esp-buddy",
   [switch]$List
 )
 

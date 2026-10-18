@@ -1,5 +1,5 @@
 {
-  "name": "budy",
+  "name": "esp-buddy",
   "version": "1.0.0",
   "private": true,
   "description": "Playful OpenCode buddy: mirrors CLI activity onto the ESP32-S3 RLCD buddy screen over USB CDC",

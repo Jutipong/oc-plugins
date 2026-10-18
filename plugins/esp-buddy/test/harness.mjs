@@ -1,5 +1,5 @@
-// Offline state-machine + personality test for plugins/budy/index.js.
-//   cd plugins/budy/test && node harness.mjs   (or: bun run test)
+// Offline state-machine + personality test for plugins/esp-buddy/index.js.
+//   cd plugins/esp-buddy/test && node harness.mjs   (or: bun run test)
 // Mocks "@opencode/plugin" and node:child_process (every send is recorded),
 // runs the plugin clock 100x faster, holds the idle "play" timers so tests
 // stay deterministic, and drives the tool / model / stream / event hooks
@@ -52,7 +52,10 @@ const firePlay = () => {
 let rngValue = 0.999;
 Math.random = () => rngValue;
 
-const PLUGIN = process.env.BUDY_PLUGIN_SRC || path.join(here, "..", "index.js");
+const PLUGIN =
+  process.env.ESP_BUDDY_PLUGIN_SRC ||
+  process.env.BUDY_PLUGIN_SRC ||
+  path.join(here, "..", "index.js");
 
 const sends = (globalThis.__sends = []);
 const seq = () => sends.map((s) => s.args[s.args.length - 1]);

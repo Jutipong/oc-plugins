@@ -5,7 +5,7 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// budy — playful OpenCode buddy plugin (OpenCode v2 API). Mirrors CLI
+// esp-buddy — playful OpenCode buddy plugin (OpenCode v2 API). Mirrors CLI
 // activity onto the ESP32-S3 RLCD buddy screen as generic {"event":"..."}
 // lines over USB CDC. Ported from the legacy "avatar" plugin v6 with a
 // naming-layer change only (id / file names / env vars); the state machine is
@@ -47,13 +47,16 @@ const firstExisting = (...cands) => cands.find((p) => fs.existsSync(p)) || cands
 
 // senders: env override -> next to this file (repo / copied plugin.js) -> live config dir
 const SEND_MJS =
-  envOr("BUDY_SEND_MJS", "AVATAR_SEND_MJS") ||
-  firstExisting(path.join(HERE, "budy-send.mjs"), path.join(LIVE_DIR, "budy-send.mjs"));
+  envOr("ESP_BUDDY_SEND_MJS", "BUDY_SEND_MJS", "AVATAR_SEND_MJS") ||
+  firstExisting(path.join(HERE, "esp-buddy-send.mjs"), path.join(LIVE_DIR, "esp-buddy-send.mjs"));
 const SEND_PS1 =
-  envOr("BUDY_SEND_PS1", "AVATAR_SEND_PS1") ||
-  firstExisting(path.join(HERE, "budy-send.ps1"), path.join(LIVE_DIR, "budy-send.ps1"));
-const LOG = path.join(LIVE_DIR, "budy-debug.log");
-const DEBUG = process.env.BUDY_DEBUG === "1" || process.env.AVATAR_DEBUG === "1"; // logging off by default
+  envOr("ESP_BUDDY_SEND_PS1", "BUDY_SEND_PS1", "AVATAR_SEND_PS1") ||
+  firstExisting(path.join(HERE, "esp-buddy-send.ps1"), path.join(LIVE_DIR, "esp-buddy-send.ps1"));
+const LOG = path.join(LIVE_DIR, "esp-buddy-debug.log");
+const DEBUG =
+  process.env.ESP_BUDDY_DEBUG === "1" ||
+  process.env.BUDY_DEBUG === "1" ||
+  process.env.AVATAR_DEBUG === "1"; // logging off by default
 
 const QUIET_MS = 25000; // no activity this long -> idle (backstop, checked against busy state)
 const RECHECK_MS = 3000; // still busy? re-check instead of going idle
@@ -121,9 +124,9 @@ async function send(buddy, src) {
 }
 
 export default Plugin.define({
-  id: "budy",
+  id: "esp-buddy",
   async setup(ctx) {
-    log("setup loaded budy v1 (legacy avatar-v6 core)");
+    log("setup loaded esp-buddy v1 (legacy avatar-v6 core)");
     let current = null; // last buddy state sent
     let idleTimer = null;
     let beat = null;
@@ -544,7 +547,7 @@ export default Plugin.define({
     }));
 
     schedulePlay();
-    log("hooks registered:", regs.length, "| budy ready");
+    log("hooks registered:", regs.length, "| esp-buddy ready");
 
     return () => {
       if (idleTimer) clearTimeout(idleTimer);

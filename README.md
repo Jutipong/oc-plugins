@@ -6,7 +6,7 @@ senders, an offline test harness, and its own README.
 
 | plugin | what it does | hardware |
 |---|---|---|
-| [budy](plugins/budy) | playful desk buddy: mirrors OpenCode activity onto an ESP32-S3 RLCD avatar (`working`/`thinking`/`speaking`/`happy`/`confused` + idle play pulses) | [ESP32-S3-AI](https://github.com/Jutipong/ESP32-S3-AI) |
+| [esp-buddy](plugins/esp-buddy) | playful desk buddy: mirrors OpenCode activity onto an ESP32-S3 RLCD avatar (`working`/`thinking`/`speaking`/`happy`/`confused` + idle play pulses) | [ESP32-S3-AI](https://github.com/Jutipong/ESP32-S3-AI) |
 
 ## Install
 
@@ -17,19 +17,19 @@ edit and restart OpenCode):
 // ~/.config/opencode/opencode.jsonc
 {
   "$schema": "https://opencode.ai/config.json",
-  "plugins": ["file:///D:/code/oc-plugins/plugins/budy"]
+  "plugins": ["file:///D:/code/oc-plugins/plugins/esp-buddy"]
 }
 ```
 
 ```powershell
-cd D:\code\oc-plugins\plugins\budy
+cd D:\code\oc-plugins\plugins\esp-buddy
 bun install          # serialport for the fast sender (powershell fallback needs nothing)
 ```
 
 Fallback — copy into the live config folder:
 
 ```powershell
-.\install.ps1 -Plugin budy     # also: -List
+.\install.ps1 -Plugin esp-buddy     # also: -List
 ```
 
 Each plugin's README documents requirements, env vars, and behavior.
@@ -50,10 +50,10 @@ Each plugin's README documents requirements, env vars, and behavior.
 
 ```
 plugins/
-  budy/
-    index.js          # the plugin (Plugin.define id "budy")
-    budy-send.mjs     # fast sender (node + serialport, ~200ms)
-    budy-send.ps1     # fallback sender (powershell, ~340ms)
+  esp-buddy/
+    index.js          # the plugin (Plugin.define id "esp-buddy")
+    esp-buddy-send.mjs  # fast sender (node + serialport, ~200ms)
+    esp-buddy-send.ps1  # fallback sender (powershell, ~340ms)
     test/harness.mjs  # offline state-machine test (~51 assertions)
 install.ps1           # copy-mode installer for ~/.config/opencode/plugins
 ```

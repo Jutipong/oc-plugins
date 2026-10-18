@@ -1,14 +1,15 @@
-// Fast budy sender (node + serialport, ~20ms vs ~340ms powershell).
-// Usage: node budy-send.mjs <event> [COM5]
+// Fast esp-buddy sender (node + serialport, ~20ms vs ~340ms powershell).
+// Usage: node esp-buddy-send.mjs <event> [COM5]
 import { SerialPort } from "serialport";
 
 const VALID = ["idle", "listening", "thinking", "speaking", "happy", "excited",
   "success", "confused", "error", "sleeping", "working", "greeting",
   "wag", "curious"];
 const evt = process.argv[2];
-const portPath = process.argv[3] || process.env.BUDY_COM || process.env.AVATAR_COM || "COM5";
+const portPath =
+  process.argv[3] || process.env.ESP_BUDDY_COM || process.env.BUDY_COM || process.env.AVATAR_COM || "COM5";
 if (!VALID.includes(evt)) {
-  console.error("usage: node budy-send.mjs <event> [port]");
+  console.error("usage: node esp-buddy-send.mjs <event> [port]");
   process.exit(2);
 }
 try {
