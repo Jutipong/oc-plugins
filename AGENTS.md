@@ -124,11 +124,12 @@ sidebar and session panel (no `mo` dependency).
     clock**. Framed content is 32 cells; `frame: "none"` uses 36 and
     prepends a `● <health score>` header line.
   - **Sidebar `sidebarMode: "full"`** — stacks the `/sys` cards into the
-    sidebar as one column (36 cells, 32 framed): health header (score+label,
-    message, identity, `RAM/Disk/Hz` packed, OS+uptime) then CPU/Memory/Disk/
-    Power/Network, all through the same `frame`/`barStyle`/`colorMode`/
-    `cores`. Meters fill the row (label + meter + right-aligned value: 19
-    cells framed / 23 unframed, power 18/22; network sparklines 15/19). All
+    sidebar as one column (36 cells, 32 framed): CPU, Memory, Disk, Power,
+    Network; no health/identity header (score + machine + OS stay in the
+    panel), it starts with the CPU card. All through the same `frame`/
+    `barStyle`/`colorMode`/`cores`. Meters fill the row (label + meter +
+    right-aligned value: 19 cells framed / 23 unframed, power 18/22;
+    network sparklines 15/19). All
     card titles carry their headline value right-aligned (chip + GHz, memory
     used / total, disk used / total, battery level, network IP; long values
     clipped with `…`; panel keeps plain titles). Redundant rows are dropped
@@ -137,8 +138,8 @@ sidebar and session panel (no `mo` dependency).
     missing).
     `rowSpacing` = `compact` (cards adjacent) / `normal` (blank line) /
     `airy` (faint separator; falls back to `spacing`). Overflowing fields are
-    dropped, not mangled (60Hz, `4P+4E`, battery `· Charged` at 32 cells).
-    ~29–33 lines tall; `mode: "full"` is the model option.
+    dropped, not mangled (`4P+4E`, battery `· Charged` at 32 cells).
+    ~23–27 lines tall; `mode: "full"` is the model option.
   - **`/sys` panel** — `session.panel` slot, opened by the
     `sys-status.open` command (slash `/sys`, alias `/system`, palette
     "System status"): full dashboard at 100 columns, header health line +

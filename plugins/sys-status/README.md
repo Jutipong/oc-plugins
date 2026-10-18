@@ -30,19 +30,15 @@ a transparent health score.
 
 ### Full sidebar (`sidebarMode: "full"`)
 
-The same dashboard as `/sys` — health header, CPU, memory, disk, power and
-network — stacked into the 36-column sidebar (single column; the panel's
-two-column layout needs ~100 columns). `frame`, `barStyle`, `colorMode`,
-`cores` and `rowSpacing` all apply:
+The same cards as `/sys` — CPU, memory, disk, power and network — stacked
+into the 36-column sidebar (single column; the panel's two-column layout
+needs ~100 columns). `frame`, `barStyle`, `colorMode`, `cores` and
+`rowSpacing` all apply. The health score, machine identity and OS/uptime
+header stay in the `/sys` panel; the sidebar starts straight with the CPU
+card:
 
 ```text
 ╭─ ◈ System ───────────────────────╮
-│ ● 97 Excellent                   │
-│ Restart Recommended              │
-│ MacBook Air · Apple M1, 7GPU     │
-│ RAM 16.0 GB · Disk 228.3 GB      │
-│ macOS 27.0.1 · up 14d 16h        │
-│ ──────────────────────────────── │
 │ ◉ CPU         Apple M1 · 2.4 GHz │
 │ Total  █████░░░░░░░░░░░░░░ 29.1% │
 │ Core1  ████████░░░░░░░░░░░ 44.4% │
@@ -87,11 +83,11 @@ two-column layout needs ~100 columns). `frame`, `barStyle`, `colorMode`,
   2.4 GHz`); long chip names are clipped with `…`. The `/sys` panel keeps the
   plain card titles.
 - Fields that no longer fit are dropped instead of mangled: at 32 framed
-  columns the refresh rate, the `4P+4E` load suffix and the battery
-  `· Charged` status are omitted; `frame: "none"` shows them when they fit.
+  columns the `4P+4E` load suffix and the battery `· Charged` status are
+  omitted; `frame: "none"` shows them when they fit.
 - `rowSpacing` (`compact` / `normal` / `airy`) controls the gaps between
   the cards: none, one blank line, or a faint separator line.
-- The full stack is ~29 (`compact`) to ~33 (`airy`) lines tall. If your
+- The full stack is ~23 (`compact`) to ~27 (`airy`) lines tall. If your
   terminal clips the bottom, use `frame: "none"`, `rowSpacing: "compact"`
   or `cores: "p"` (the default) to shorten it.
 

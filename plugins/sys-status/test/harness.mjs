@@ -526,16 +526,10 @@ test("sidebar frame mirrors go-usage", () => {
 test("full sidebar stacks the /sys dashboard", () => {
   const model = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "rounded", rowSpacing: "airy" })
   const text = flatText(model.lines)
-  eq(model.lines.length, 33)
+  eq(model.lines.length, 27)
   for (const line of model.lines) eq(lineWidth(line), 36)
   for (const needle of [
     "╭─ ◈ System",
-    "● 97",
-    "Excellent",
-    "Restart Recommended",
-    "MacBook Air · Apple M1, 7GPU",
-    "RAM 16.0 GB · Disk 228.3 GB",
-    "macOS 27.0.1 · up 14d 16h",
     "◉ CPU",
     "Core1",
     "Core4",
@@ -556,9 +550,11 @@ test("full sidebar stacks the /sys dashboard", () => {
     includes(text, needle)
   }
   excludes(text, "4P+4E")
-  excludes(text, "60Hz")
   excludes(text, "Process")
   excludes(text, "…")
+  excludes(text, "Excellent")
+  excludes(text, "MacBook Air")
+  excludes(text, "up 14d")
   const rowText = model.lines.map((line) => flatText([line]))
   const cpuRow = rowText.find((line) => line.includes("Total") && /[█░]/.test(line))
   ok(cpuRow?.endsWith("29.1% │"), `full sidebar values must be right-aligned: ${cpuRow}`)
@@ -615,10 +611,10 @@ test("full sidebar rowSpacing controls the card gaps", () => {
   const compact = buildSidebarModel(macSnapshot(), { ...base, rowSpacing: "compact" })
   const normal = buildSidebarModel(macSnapshot(), { ...base, rowSpacing: "normal" })
   const airy = buildSidebarModel(macSnapshot(), { ...base, rowSpacing: "airy" })
-  eq(normal.lines.length, compact.lines.length + 5)
+  eq(normal.lines.length, compact.lines.length + 4)
   eq(airy.lines.length, compact.lines.length + 4)
-  eq(normal.lines.filter((line) => flatText([line]).trim() === "").length, 5)
-  eq(airy.lines.filter((line) => /^─+$/.test(flatText([line]))).length, 5)
+  eq(normal.lines.filter((line) => flatText([line]).trim() === "").length, 4)
+  eq(airy.lines.filter((line) => /^─+$/.test(flatText([line]))).length, 4)
   const fallback = buildSidebarModel(macSnapshot(), { ...base, spacing: "airy" })
   eq(flatText(fallback.lines), flatText(airy.lines))
   const bogus = buildSidebarModel(macSnapshot(), { ...base, rowSpacing: "bogus", spacing: "compact" })
@@ -639,7 +635,8 @@ test("full sidebar follows the frame option", () => {
   const plain = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "none", rowSpacing: "airy" })
   excludes(flatText(plain.lines), "╭")
   ok(plain.lines.length < rounded.lines.length, "unframed full sidebar should be shorter")
-  includes(flatText(plain.lines), "60Hz")
+  eq(lineWidth(plain.lines[0]), 36)
+  includes(flatText(plain.lines), "Apple M1 · 2.4 GHz")
 })
 
 test("full sidebar keeps mole/solid bars and placeholder states", () => {
@@ -657,8 +654,7 @@ test("full sidebar keeps mole/solid bars and placeholder states", () => {
 test("full sidebar works for a Windows snapshot", () => {
   const model = buildSidebarModel(winSnapshot(), { width: 36, mode: "full", frame: "none", rowSpacing: "airy" })
   const text = flatText(model.lines)
-  includes(text, "LENOVO 20XW004AUS")
-  includes(text, "Windows 11 Pro")
+  includes(text, "11th Gen Intel")
   for (const line of model.lines) ok(lineWidth(line) <= 36, `Windows full sidebar line too wide: ${lineWidth(line)}`)
   const cpuTitle = model.lines.map((line) => flatText([line])).find((line) => line.includes("◉ CPU"))
   ok(cpuTitle?.startsWith("◉ CPU "), `CPU title must lead with ◉ CPU: ${cpuTitle}`)

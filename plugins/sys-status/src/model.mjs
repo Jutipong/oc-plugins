@@ -296,46 +296,10 @@ function fittingDetail(detail, width) {
   return displayWidth(head) <= width ? head : value
 }
 
-/** Health/identity header for the full sidebar (mirrors the /sys header). */
-function sidebarHeader(snapshot, width) {
-  const hardware = snapshot.hardware ?? {}
-  const health = snapshot.health ?? {}
-  const lines = []
-  const scoreLine = [seg(`● ${health.score ?? "--"}`, health.tone ?? "muted", true)]
-  if (health.label) scoreLine.push(seg(` ${health.label}`, "muted"))
-  lines.push(scoreLine)
-  if (health.message) lines.push([seg(health.message, "muted")])
-  const gpu = hardware.gpuCores ? `, ${hardware.gpuCores}GPU` : hardware.gpuName ? `, ${hardware.gpuName}` : ""
-  const identity = [hardware.name, hardware.chip ? `${hardware.chip}${gpu}` : gpu ? gpu.replace(/^, /, "") : null]
-    .filter(Boolean)
-    .join(" · ")
-  if (identity) lines.push([seg(truncate(identity, width), "muted")])
-  const refresh = hasNumber(hardware.refreshRate) && hardware.refreshRate > 0 ? `${Math.round(hardware.refreshRate)}Hz` : null
-  const specs = packFields(
-    [
-      hardware.totalRam ? `RAM ${formatBytes(hardware.totalRam)}` : null,
-      hardware.diskSize ? `Disk ${formatBytes(hardware.diskSize)}` : null,
-      refresh,
-    ],
-    width,
-  )
-  if (specs) lines.push([seg(specs, "muted")])
-  const meta = [
-    hardware.osVersion,
-    snapshot.uptimeSec ? `up ${formatDuration(snapshot.uptimeSec)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ")
-  if (meta) lines.push([seg(meta, "faint")])
-  lines.push([seg(separator(width), "faint")])
-  return lines
-}
-
 /** Full dashboard (the /sys cards) stacked into the narrow sidebar. */
 function buildSidebarFullModel(snapshot, { total, width, framed, frame, barStyle, rowSpacing, cores }) {
   const layout = { tight: true, rightAlign: true }
   const cards = [
-    sidebarHeader(snapshot, width),
     cpuCard(snapshot, width, cores, barStyle, layout),
     memoryCard(snapshot, width, barStyle, layout),
     diskCard(snapshot, width, barStyle, layout),
@@ -346,7 +310,7 @@ function buildSidebarFullModel(snapshot, { total, width, framed, frame, barStyle
   cards.forEach((card, index) => {
     if (index > 0) {
       if (rowSpacing === "normal") lines.push([seg(" ")])
-      else if (rowSpacing === "airy" && index > 1) lines.push([seg(separator(width), "faint")])
+      else if (rowSpacing === "airy") lines.push([seg(separator(width), "faint")])
     }
     lines.push(...card)
   })
