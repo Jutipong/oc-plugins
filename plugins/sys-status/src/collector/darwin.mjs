@@ -5,7 +5,7 @@
 // Commands are invoked directly (never through a shell) with per-command
 // timeouts, and every failure keeps the previous value instead of throwing.
 
-import { createRingBuffer, createDeltaTracker, run } from "./common.mjs"
+import { createDeltaTracker, run } from "./common.mjs"
 import {
   parseDefaultRoute,
   parseDf,
@@ -37,8 +37,6 @@ const TUNNEL_PATTERN = /^(utun|ppp|ipsec|tap|tun)/
 export function createDarwinSource({ logger } = {}) {
   const netDeltas = createDeltaTracker()
   const ioDeltas = createDeltaTracker()
-  const rxHistory = createRingBuffer(14)
-  const txHistory = createRingBuffer(14)
 
   let cache = {
     hardware: {},
@@ -177,16 +175,12 @@ export function createDarwinSource({ logger } = {}) {
         const rx = netDeltas.update(`${name}:rx`, link.ibytes, now)
         const tx = netDeltas.update(`${name}:tx`, link.obytes, now)
         if (rx != null) {
-          rxHistory.push(rx)
-          txHistory.push(tx ?? 0)
           cache.network = {
             ...cache.network,
             name,
             ip: link.ip ?? cache.network.ip ?? null,
             rxRate: rx / 1e6,
             txRate: (tx ?? 0) / 1e6,
-            rxHistory: rxHistory.toArray(),
-            txHistory: txHistory.toArray(),
             tunnel: TUNNEL_PATTERN.test(name),
           }
         }
@@ -280,7 +274,7 @@ export function createDarwinSource({ logger } = {}) {
         cpu: { ...cache.cpu, detail: cpuDetail },
         memory: { ...cache.memory },
         disk: { ...cache.disk },
-        network: { ...cache.network, rxHistory: rxHistory.toArray(), txHistory: txHistory.toArray() },
+        network: { ...cache.network },
         power: { ...cache.power },
         errors: [],
       }

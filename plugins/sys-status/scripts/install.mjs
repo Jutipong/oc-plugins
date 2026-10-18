@@ -99,4 +99,4 @@ const config = JSON.parse(result.text)
 if (sidebarHidden(config)) {
   console.log('Warning: session.sidebar is "hide" — the sidebar widget will not show until it is "auto".')
 }
-console.log("Restart OpenCode, open a session, then use /sys for the full panel.")
+console.log("Restart OpenCode, open a session: sys-status renders in the sidebar.")

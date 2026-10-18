@@ -3,8 +3,8 @@
 // One collector per TUI process. It samples CPU from `os.cpus()` deltas in
 // process, delegates platform-specific metrics to darwin.mjs / win32.mjs, and
 // publishes a merged immutable snapshot to subscribers. Subscribers are
-// reference-counted: the collector only runs while at least one slot (sidebar
-// or panel) is mounted, and stops a few seconds after the last one leaves.
+// reference-counted: the collector only runs while the sidebar is mounted, and
+// stops a few seconds after it leaves.
 
 import os from "node:os"
 import { baseSnapshot, createLogger, ema, mergeSnapshot } from "./common.mjs"
@@ -131,15 +131,6 @@ export function createCollector(options = {}) {
           }, IDLE_STOP_MS)
         }
       }
-    },
-    restart() {
-      if (stopped) return
-      stopLoop()
-      usageEma = null
-      prevCpus = os.cpus()
-      prevAt = Date.now()
-      snapshot = { ...baseSnapshot(), platform }
-      start()
     },
     getSnapshot() {
       return snapshot

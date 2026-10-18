@@ -8,7 +8,7 @@
 import fs from "node:fs"
 import path from "node:path"
 import { spawn } from "node:child_process"
-import { createRingBuffer, createDeltaTracker, run } from "./common.mjs"
+import { createDeltaTracker, run } from "./common.mjs"
 import { parseWin32Hardware, parseWin32Sample } from "../parser.mjs"
 
 const LOOP_MS = 3000
@@ -135,8 +135,6 @@ function findPowerShell() {
 export function createWindowsSource({ logger } = {}) {
   const powershell = findPowerShell()
   const netDeltas = createDeltaTracker()
-  const rxHistory = createRingBuffer(14)
-  const txHistory = createRingBuffer(14)
 
   let child = null
   let stopped = false
@@ -241,10 +239,6 @@ export function createWindowsSource({ logger } = {}) {
     if (net?.receivedBytes != null && net?.sentBytes != null) {
       const rx = netDeltas.update("rx", net.receivedBytes, now)
       const tx = netDeltas.update("tx", net.sentBytes, now)
-      if (rx != null) {
-        rxHistory.push(rx)
-        txHistory.push(tx ?? 0)
-      }
       cacheNet = net
       net.rxRate = rx != null ? rx / 1e6 : null
       net.txRate = tx != null ? tx / 1e6 : null
@@ -307,8 +301,6 @@ export function createWindowsSource({ logger } = {}) {
         gateway: net?.gateway ?? null,
         rxRate: net?.rxRate ?? null,
         txRate: net?.txRate ?? null,
-        rxHistory: rxHistory.toArray(),
-        txHistory: txHistory.toArray(),
         tunnel: net?.name ? TUNNEL_PATTERN.test(net.name) : false,
       },
       power: {

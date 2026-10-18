@@ -2,7 +2,7 @@
 //
 // Pure functions that turn a collector snapshot into lines of styled
 // segments. The JSX layer only maps segment tones to theme tokens, so the
-// exact sidebar/panel text is fully testable without OpenTUI.
+// exact sidebar text is fully testable without OpenTUI.
 
 import {
   align,
@@ -11,7 +11,6 @@ import {
   formatAmps,
   formatBytes,
   formatBytesShort,
-  formatDuration,
   formatPercent,
   formatRate,
   formatVolts,
@@ -20,7 +19,6 @@ import {
   padStart,
   safeNumber,
   separator,
-  sparkline,
   toneForUsage,
   truncate,
 } from "./format.mjs"
@@ -71,13 +69,13 @@ function barSegment(percentValue, width, tone, barStyle = "mole") {
 }
 
 function usageTone(percentValue) {
-  return toneForUsage(percentValue, 60, 85)
+  return toneForUsage(percentValue, 50, 80)
 }
 
 /**
- * One label + meter + value row. The default layout keeps the panel formula
- * (`width - 19` meter); `opts.rightAlign` (full sidebar) widens the meter to
- * the space left next to the label and parks the value in a shared column.
+ * One label + meter + value row. The default layout uses a `width - 19`
+ * meter; `opts.rightAlign` (full sidebar) widens the meter to the space left
+ * next to the label and parks the value in a shared column.
  */
 function meterRow(labelText, labelWidth, percentValue, tone, valueText, width, barStyle, opts = {}) {
   const barWidth = opts.rightAlign
@@ -296,7 +294,7 @@ function fittingDetail(detail, width) {
   return displayWidth(head) <= width ? head : value
 }
 
-/** Full dashboard (the /sys cards) stacked into the narrow sidebar. */
+/** Full dashboard cards stacked into the narrow sidebar. */
 function buildSidebarFullModel(snapshot, { total, width, framed, frame, barStyle, rowSpacing, cores }) {
   const layout = { tight: true, rightAlign: true }
   const cards = [
@@ -323,94 +321,6 @@ function buildSidebarFullModel(snapshot, { total, width, framed, frame, barStyle
       frameBottom(total, chars),
     ],
   }
-}
-
-export function buildPanelModel(snapshot, options = {}) {
-  const width = options.width ?? 100
-  const contentWidth = Math.max(24, width - 4)
-  const coresMode = options.cores ?? "p"
-  const barStyle = options.barStyle === "solid" ? "solid" : "mole"
-  const twoColumn = contentWidth >= 96
-  const columnWidth = twoColumn ? Math.floor((contentWidth - 3) / 2) : contentWidth
-
-  if (!snapshot || snapshot.updatedAt === 0) {
-    return {
-      header: [[seg("Status", "accent", true)], [seg("starting…", "muted")]],
-      left: [],
-      right: [],
-      full: [],
-      footer: [],
-      twoColumn,
-    }
-  }
-  if (snapshot.unsupported) {
-    return {
-      header: [[seg("Status", "accent", true)], [seg("This platform is not supported yet", "warning")]],
-      left: [],
-      right: [],
-      full: [[seg(snapshot.errors?.[0] ?? "", "muted")]],
-      footer: [],
-      twoColumn,
-    }
-  }
-
-  const hardware = snapshot.hardware ?? {}
-  const health = snapshot.health ?? {}
-  const healthLine = [
-    seg("Status", "accent", true),
-    seg("  Health ", "muted"),
-    seg(`● ${health.score ?? "--"}`, health.tone ?? "muted", true),
-    seg(`  ${health.label ?? ""}${health.message ? `: ${health.message}` : ""}`, "muted"),
-  ]
-  const gpu = hardware.gpuCores ? `, ${hardware.gpuCores}GPU` : hardware.gpuName ? `, ${hardware.gpuName}` : ""
-  const refresh = hasNumber(hardware.refreshRate) && hardware.refreshRate > 0 ? ` · ${Math.round(hardware.refreshRate)}Hz` : ""
-  const identity = [
-    hardware.name,
-    hardware.chip ? `${hardware.chip}${gpu}` : gpu ? gpu.replace(/^, /, "") : null,
-    hardware.totalRam ? `RAM ${formatBytes(hardware.totalRam)}` : null,
-    hardware.diskSize ? `Disk ${formatBytes(hardware.diskSize)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ")
-  const meta = [
-    hardware.osVersion,
-    snapshot.uptimeSec ? `up ${formatDuration(snapshot.uptimeSec)}` : null,
-  ]
-    .filter(Boolean)
-    .join(" · ")
-
-  const header = clipAll(
-    [
-      healthLine,
-      [seg(truncate(identity, contentWidth), "muted")],
-      [seg(meta, "faint")],
-      [seg(separator(contentWidth), "faint")],
-    ],
-    contentWidth,
-  )
-
-  const left = clipAll([...cpuCard(snapshot, columnWidth, coresMode, barStyle), [seg(" ")], ...diskCard(snapshot, columnWidth, barStyle)], columnWidth)
-  const right = clipAll([...memoryCard(snapshot, columnWidth, barStyle), [seg(" ")], ...powerCard(snapshot, columnWidth, barStyle)], columnWidth)
-  const full = clipAll(networkCard(snapshot, contentWidth), contentWidth)
-  const age = snapshot.updatedAt ? Math.max(0, Math.round((Date.now() - snapshot.updatedAt) / 1000)) : null
-  const footer = clipAll(
-    [
-      [
-        seg("r", "base", true),
-        seg(" restart · ", "muted"),
-        seg("f", "base", true),
-        seg(" fullscreen · ", "muted"),
-        seg("c", "base", true),
-        seg(` cores (${coresMode === "all" ? "all" : "summary"}) · `, "muted"),
-        seg("q", "base", true),
-        seg(" close", "muted"),
-      ],
-      [seg(`native collector · updated ${age == null ? "--" : `${age}s`} ago`, "faint")],
-    ],
-    contentWidth,
-  )
-
-  return { header, left, right, full, footer, twoColumn, columnWidth }
 }
 
 function cpuCard(snapshot, width, coresMode, barStyle, opts = {}) {
@@ -517,18 +427,23 @@ function powerCard(snapshot, width, barStyle, opts = {}) {
         meterRow("Health", 8, power.healthPercent, healthTone, formatPercent(power.healthPercent, 0), width, barStyle, opts),
       )
     }
-    const input = powerFlow(power, "system")
+    const inputActive =
+      (hasNumber(power.systemWatts) && power.systemWatts > 0) || (hasNumber(power.systemAmps) && power.systemAmps > 0)
+    const input = inputActive ? powerFlow(power, "system") : null
     if (input) lines.push([label("Input", 8), seg(input, "base")])
     let battery = powerFlow(power, "battery")
     if (battery && opts.tight && displayWidth(battery) > width - 8) {
       battery = powerFlow(power, "battery", false) || battery
     }
     if (battery) lines.push([label("Battery", 8), seg(battery, "muted")])
-    const adapter = []
     const adapterWatts = hasNumber(power.adapterWatts) ? power.adapterWatts : power.acWatts
-    if (hasNumber(adapterWatts)) adapter.push(`${formatWatts(adapterWatts, 0)} max`)
-    if (hasNumber(power.cycles)) adapter.push(`${power.cycles} cycles`)
-    if (adapter.length) lines.push([label("Adapter", 8), seg(adapter.join(" · "), "muted")])
+    if (hasNumber(adapterWatts)) {
+      const adapter = [`${formatWatts(adapterWatts, 0)} max`]
+      if (hasNumber(power.cycles)) adapter.push(`${power.cycles} cycles`)
+      lines.push([label("Adapter", 8), seg(adapter.join(" · "), "muted")])
+    } else if (hasNumber(power.cycles)) {
+      lines.push([label("Cycles", 8), seg(`${power.cycles}`, "muted")])
+    }
     if (!input && !battery && power.status) lines.push([seg(power.status, "muted")])
   } else {
     lines.push([label("Source", 8), seg("AC Power", "base")])
@@ -552,14 +467,11 @@ function powerFlow(power, kind, includeStatus = true) {
 
 function networkCard(snapshot, width, opts = {}) {
   const network = snapshot.network ?? {}
-  const sparkWidth = opts.rightAlign
-    ? Math.max(8, Math.min(24, width - 7 - RATE_CELL - 1))
-    : Math.max(8, Math.min(20, width - 23))
   const name = network.tunnel ? "Tunnel" : network.name
   const lines = [
     cardTitle("⇅ Network", network.ip, width, opts),
-    networkRow("Down", network.rxRate, network.rxHistory, sparkWidth, width, opts),
-    networkRow("Up", network.txRate, network.txHistory, sparkWidth, width, opts),
+    networkRow("Up", network.txRate, width, opts),
+    networkRow("Down", network.rxRate, width, opts),
   ]
   // The sidebar carries the IP in the title; the footer survives only when
   // the title has nothing to show.
@@ -570,25 +482,12 @@ function networkCard(snapshot, width, opts = {}) {
   return lines
 }
 
-function networkRow(labelText, rate, history, sparkWidth, width, opts = {}) {
-  const left = [label(labelText, 7), seg(sparkline(history ?? [], sparkWidth), "accent")]
+function networkRow(labelText, rate, width, opts = {}) {
+  const left = [label(labelText, 7)]
   if (opts.rightAlign) {
     return alignSegments(left, [valueSegment(padStart(formatRate(rate), RATE_CELL), "base")], width)
   }
   return [...left, valueSegment(` ${formatRate(rate)}`, "base")]
-}
-
-/** Zip two card columns into full panel lines with a gap. */
-export function combineColumns(leftLines, rightLines, leftWidth, gap = 3) {
-  const rows = Math.max(leftLines.length, rightLines.length)
-  const output = []
-  for (let index = 0; index < rows; index += 1) {
-    const left = leftLines[index] ?? []
-    const right = rightLines[index] ?? []
-    const pad = Math.max(0, leftWidth - lineWidth(left))
-    output.push([...left, seg(" ".repeat(pad + gap)), ...right])
-  }
-  return output
 }
 
 export { align, lineWidth }

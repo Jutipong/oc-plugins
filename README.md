@@ -7,7 +7,7 @@ senders, an offline test harness, and its own README.
 | plugin | what it does | hardware |
 |---|---|---|
 | [esp-buddy](plugins/esp-buddy) | playful desk buddy: mirrors OpenCode activity onto an ESP32-S3 RLCD avatar (`working`/`thinking`/`speaking`/`happy`/`confused` + idle play pulses) | [ESP32-S3-AI](https://github.com/Jutipong/ESP32-S3-AI) |
-| [sys-status](plugins/sys-status) | Mole-style system dashboard: compact CLI sidebar block + `/sys` panel for the full view (CPU / memory / disk / power / network, macOS + Windows, no external tools) | any Mac or PC running OpenCode V2 |
+| [sys-status](plugins/sys-status) | Mole-style system dashboard: compact CLI sidebar block or a stacked full dashboard (CPU / memory / disk / power / network, macOS + Windows, no external tools) | any Mac or PC running OpenCode V2 |
 | [go-usage](plugins/go-usage) | OpenCode Go plan usage (rolling / weekly / monthly) in the CLI sidebar with btop-style bars, device-code login, `/go-usage` command | — |
 
 ## Install
@@ -25,9 +25,8 @@ cd plugins/go-usage
 node scripts/install.mjs          # then run /go-usage login inside OpenCode
 ```
 
-Then restart OpenCode: sys-status renders in the session sidebar (use `/sys`
-for the full dashboard panel), and `/go-usage` handles the Go plan usage
-inside a session.
+Then restart OpenCode: sys-status renders in the session sidebar, and
+`/go-usage` handles the Go plan usage inside a session.
 
 ### Server plugins (esp-buddy)
 

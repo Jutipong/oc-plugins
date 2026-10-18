@@ -8,7 +8,7 @@ const SIDEBAR_WIDTH = 36
 /**
  * Compact or full status block for `sidebar.content`. Subscribes to the
  * shared collector on mount; the collector stops itself a few seconds after
- * the last sidebar/panel unmounts.
+ * the sidebar unmounts.
  */
 export function SidebarStatus(props) {
   const [snapshot, setSnapshot] = createSignal(null)

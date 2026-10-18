@@ -5,27 +5,6 @@ import fs from "node:fs"
 import os from "node:os"
 import path from "node:path"
 
-export function createRingBuffer(capacity = 16) {
-  const size = Math.max(1, Math.round(capacity))
-  const data = []
-  return {
-    push(value) {
-      if (typeof value !== "number" || !Number.isFinite(value)) return
-      data.push(value)
-      while (data.length > size) data.shift()
-    },
-    toArray() {
-      return data.slice()
-    },
-    get length() {
-      return data.length
-    },
-    clear() {
-      data.length = 0
-    },
-  }
-}
-
 export function ema(previous, next, alpha = 0.3) {
   if (typeof next !== "number" || !Number.isFinite(next)) return previous ?? null
   if (typeof previous !== "number" || !Number.isFinite(previous)) return next
@@ -146,7 +125,7 @@ export function baseSnapshot() {
       fullyCharged: null,
       timeLeft: null,
     },
-    network: { name: null, ip: null, gateway: null, rxRate: null, txRate: null, rxHistory: [], txHistory: [], tunnel: false },
+    network: { name: null, ip: null, gateway: null, rxRate: null, txRate: null, tunnel: false },
     health: { score: 0, label: "Poor", message: "Collecting…", tone: "error" },
     errors: [],
   }

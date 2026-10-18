@@ -4,7 +4,6 @@
 // harness can exercise it directly with Node.
 
 const BINARY_UNITS = ["B", "KB", "MB", "GB", "TB", "PB"]
-const SPARK = ["▁", "▂", "▃", "▄", "▅", "▆", "▇", "█"]
 
 export function clamp(value, min, max) {
   const number = safeNumber(value, min)
@@ -100,21 +99,6 @@ export function barText(percentValue, width = 10) {
   return bar(percentValue, width).text
 }
 
-/** History values -> fixed-width sparkline using ▁▂▃▄▅▆▇█. */
-export function sparkline(values, width = 14) {
-  const cells = Math.max(1, Math.round(width))
-  const source = Array.isArray(values) ? values.filter((value) => hasNumber(value)) : []
-  const recent = source.slice(-cells)
-  const max = recent.reduce((top, value) => (value > top ? value : top), 0)
-  const line = recent.map((value) => {
-    if (max <= 0) return SPARK[0]
-    const index = Math.min(SPARK.length - 1, Math.floor((Math.max(0, value) / max) * (SPARK.length - 1)))
-    return SPARK[index]
-  })
-  const pad = Math.max(0, cells - line.length)
-  return `${SPARK[0].repeat(pad)}${line.join("")}`
-}
-
 /** Timestamp (ms) -> local 24h clock "21:24:05", or null. */
 export function formatClock(timestamp) {
   if (!hasNumber(timestamp) || timestamp <= 0) return null
@@ -180,8 +164,8 @@ export function separator(width, char = "─") {
   return char.repeat(Math.max(0, Math.round(width)))
 }
 
-/** Tone buckets used by the UI. */
-export function toneForUsage(percentValue, warn = 70, error = 85) {
+/** Usage buckets (higher = worse): below 50 success, 50–79 warning, 80+ error. */
+export function toneForUsage(percentValue, warn = 50, error = 80) {
   const value = safeNumber(percentValue, 0)
   if (value >= error) return "error"
   if (value >= warn) return "warning"

@@ -1,9 +1,9 @@
 # sys-status
 
-A Mole-style system status dashboard for the **OpenCode V2 terminal sidebar**
-and session panel. Native collectors for **macOS and Windows** — no `mo`, no
-Homebrew tools, no npm dependencies. CPU, memory, disk, power and network with
-a transparent health score.
+A Mole-style system status dashboard for the **OpenCode V2 terminal sidebar**.
+Native collectors for **macOS and Windows** — no `mo`, no Homebrew tools, no
+npm dependencies. CPU, memory, disk, power and network with a transparent
+health score.
 
 > Visual inspiration: [Mole](https://github.com/tw93/mole)'s `mo status`
 > dashboard. This plugin is an independent implementation (no Mole code is
@@ -30,12 +30,10 @@ a transparent health score.
 
 ### Full sidebar (`sidebarMode: "full"`)
 
-The same cards as `/sys` — CPU, memory, disk, power and network — stacked
-into the 36-column sidebar (single column; the panel's two-column layout
-needs ~100 columns). `frame`, `barStyle`, `colorMode`, `cores` and
-`rowSpacing` all apply. The health score, machine identity and OS/uptime
-header stay in the `/sys` panel; the sidebar starts straight with the CPU
-card:
+CPU, memory, disk, power and network cards stacked into the 36-column
+sidebar. `frame`, `barStyle`, `colorMode`, `cores` and `rowSpacing` all
+apply. There is no health or machine-identity header; the sidebar starts
+straight with the CPU card:
 
 ```text
 ╭─ ◈ System ───────────────────────╮
@@ -62,8 +60,8 @@ card:
 │ Adapter 57W max · 259 cycles     │
 │ ──────────────────────────────── │
 │ ⇅ Network             192.0.2.10 │
-│ Down   ▁▁▁▁▁▁▁▁▁▁▁▃▅▂█ 0.01 MB/s │
-│ Up     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁█    0 MB/s │
+│ Up                        0 MB/s │
+│ Down                   0.01 MB/s │
 ╰──────────────────────────────────╯
 ```
 
@@ -78,10 +76,10 @@ card:
 - Meters fill the row: label + meter + right-aligned value. They are **19
   cells** wide inside the default 32-cell framed content (23 unframed) — the
   percent never wraps or truncates and every value shares the same right
-  column. The network sparklines are 15 cells (19 unframed).
+  column. The network card lists the `Up` / `Down` rates as plain numbers in
+  that same right column — no sparklines.
 - The CPU card title right-aligns the chip and speed (`◉ CPU … Apple M1 ·
-  2.4 GHz`); long chip names are clipped with `…`. The `/sys` panel keeps the
-  plain card titles.
+  2.4 GHz`); long chip names are clipped with `…`.
 - Fields that no longer fit are dropped instead of mangled: at 32 framed
   columns the `4P+4E` load suffix and the battery `· Charged` status are
   omitted; `frame: "none"` shows them when they fit.
@@ -91,39 +89,10 @@ card:
   terminal clips the bottom, use `frame: "none"`, `rowSpacing: "compact"`
   or `cores: "p"` (the default) to shorten it.
 
-### `/sys` panel (press `f` for fullscreen)
-
-```text
-Status  Health ● 97  Excellent: Restart Recommended
-MacBook Air · Apple M1, 7GPU · RAM 16.0 GB · Disk 228.3 GB · 60Hz
-macOS 27.0.1 · up 14d 16h
-────────────────────────────────────────────────────────────────
-◉ CPU                                   ◫ Memory
-Total  ███░░░░░░░░░░░░░░░  29.1%         Used   ██████░░░░░░░░░░  63.4%
-Core1  ████████░░░░░░░░░░  44.4%         Free   ██████░░░░░░░░░░  36.6%
-Core2  ████████░░░░░░░░░░  40.9%         Total  10.1 GB / 16.0 GB
-Core3  ████████░░░░░░░░░░  40.4%         Cache  3.4 GB · Avail 5.9 GB
-Core4  ███████░░░░░░░░░░░  39.8%
-  load 3.41 / 3.62 / 3.80 · 4P+4E
-────────────────────────────────────────────────────────────────
-▥ Disk                                  ◪ Power
-INTR   ███████░░░░░░░░░░░  73%           Level   ██████████████████ 100%
-Total  228.3 GB                         Health  ███████████████░░░  88%
-Used   147G used · 57G free             Input   10.6W · 0.52A @ 20.3V
-I/O    R 0.2 MB/s · W 0.0 MB/s          Battery 0W · 0.00A @ 12.7V · Charged
-                                        Adapter 57W max · 259 cycles
-────────────────────────────────────────────────────────────────
-⇅ Network
-Down   ▁▂▁▇▃▁▁▁▁▁▁▁▁▁▁  0.01 MB/s
-Up     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  0.00 MB/s
-en0 · 192.0.2.10
-```
-
 **No Processes section** — by design.
 
 - The sidebar `PWR` bar is scaled to the adapter's maximum wattage. Its value is
   the **actual system draw** (or battery draw while unplugged), e.g. `19.7W`.
-  The full panel shows the live watts, amps and volts.
 
 ## Install
 
@@ -173,15 +142,8 @@ Make sure the sidebar is not disabled:
 
 - **Sidebar** — renders automatically in every session (unless
   `options.sidebar` is `false`). `sidebarMode: "compact"` (default) shows the
-  single summary block; `sidebarMode: "full"` stacks the whole `/sys`
-  dashboard into the sidebar instead.
-- **`/sys`** — opens the full dashboard panel in the current
-  session. Also available from the command palette as **System status**.
-- Panel keys: `f` fullscreen · `c` cycle CPU cores (summary/all) · `r` restart
-  the collector · `q` close.
-- The panel replaces the sidebar while open (OpenCode's right pane can show
-  one of panel/sidebar/terminal). On narrow terminals it opens fullscreen
-  automatically.
+  single summary block; `sidebarMode: "full"` stacks the full dashboard cards
+  into the sidebar instead.
 
 ## Options (cli.json)
 
@@ -195,7 +157,7 @@ Make sure the sidebar is not disabled:
     "placement": "top",     // "top" | "bottom" of sidebar.content
     "spacing": "compact",   // compact block spacing: "compact" | "normal" | "airy"
     "rowSpacing": "airy",   // full sidebar card gaps (falls back to `spacing`)
-    "cores": "p",           // CPU cores (panel + full sidebar): "p" (summary) | "all"
+    "cores": "p",           // CPU cores (full sidebar): "p" (summary) | "all"
     "barStyle": "mole",     // "mole" (█ + ░ track) | "solid" (filled bar only)
     "frame": "rounded",     // "rounded" | "heavy" | "none"
     "colorMode": "mole"     // "mole" (fixed palette) | "theme" (follow OpenCode theme)
@@ -240,9 +202,8 @@ The sidebar block draws its own frame, matching the go-usage plugin:
   the usage percentage on the right
 - Framed content is **32 cells wide** (36 total − 2 border − 2 padding);
   `frame: "none"` uses the full 36 cells
-- The health score/message is not repeated inside the frame; open `/sys` for
-  the full health card (unless `sidebarMode: "full"`, which puts the health
-  line and every card inside the frame)
+- The health score only appears in the unframed (`frame: "none"`) header line;
+  the framed block keeps just the `◈ System` title
 
 ## Colors
 
@@ -250,9 +211,9 @@ The sidebar block draws its own frame, matching the go-usage plugin:
 
 | Tone | Hex | Used for |
 |---|---|---|
-| success | `#A5D6A7` | CPU/RAM/DSK below 60%, battery ≥50%, healthy load |
-| warning | `#FFA94D` | CPU/RAM/DSK 60–85%, battery 20–50% |
-| error | `#FF5F5F` | CPU/RAM/DSK ≥85%, battery below 20% |
+| success | `#A5D6A7` | CPU/RAM/DSK/PWR load below 50%, battery ≥50% |
+| warning | `#FFA94D` | CPU/RAM/DSK/PWR load 50–79%, battery 20–49% |
+| error | `#FF5F5F` | CPU/RAM/DSK/PWR load 80%+, battery below 20% |
 | accent | `#C79FD7` | `◈ System` title |
 | border | `#404040` | frame |
 | muted | `#737373` | labels / track accents |
@@ -270,11 +231,10 @@ The default `barStyle: "mole"` mirrors Mole's gauges:
 - Full sidebar (`sidebarMode: "full"`) keeps the label, meter and a
   right-aligned value on one line; the meter is **19 cells** framed / 23
   unframed (18/22 under the 8-cell power labels) so the row is full
-- Panel bars are 20–24 cells depending on width
 - `█` for whole cells and `░` for the empty track (full blocks, no partial
   eighth-block edge)
-- CPU / memory / disk: green below 60%, yellow 60–85%, red at 85%+
-- Battery level and health: red below 20%, yellow 20–50%, green 50%+
+- CPU / memory / disk / PWR load: green below 50%, yellow 50–79%, red at 80%+
+- Battery level and health: red below 20%, yellow 20–49%, green 50%+
 - `barStyle: "solid"` removes the `░` track (filled blocks only) for a quieter
   look; the health/percentage values are unchanged.
 
@@ -291,7 +251,9 @@ On macOS the plugin reads live power telemetry from `ioreg` (no `sudo`):
 | Battery current/voltage | `Amperage` / `Voltage` | `0.00A @ 12.7V` |
 | Adapter maximum | `AdapterDetails.Watts` | `57W max` |
 
-The `/sys` panel Power card shows `Input`, `Battery`, and `Adapter` lines.
+The Power card shows `Input`, `Battery`, and `Adapter` lines. On battery power
+the `Input` line is omitted (no AC telemetry) and `Battery` shows the discharge
+draw; battery cycles move to their own `Cycles` row when no adapter is attached.
 Windows' `Win32_Battery` does not expose instantaneous current/wattage, so the
 `Input` line is omitted and `Battery` shows status/level only.
 
@@ -322,7 +284,6 @@ Recommended** — matching the reference dashboard's mood.
 SYS_STATUS_DEBUG=1 opencode        # writes ~/.config/opencode/plugins/sys-status-debug.log
 node test/collect-smoke.mjs 8      # live sanitized snapshot (macOS/Windows)
 node test/collect-smoke.mjs --json # same, pretty JSON
-SYS_STATUS_AUTO_PANEL=1 opencode   # auto-open /sys once a session is available (smoke tests)
 ```
 
 Debug logs rotate at 512 KB and never include metric payloads.
@@ -335,7 +296,7 @@ bun run test        # or: node test/harness.mjs — prints ALL TESTS PASSED
 ```
 
 The harness is fully offline: formatters, health, macOS/Windows parsers,
-sidebar/panel models and the cli.json install helpers. Fixtures are synthetic
+sidebar models and the cli.json install helpers. Fixtures are synthetic
 (no real hostnames, IPs or serial numbers). It also asserts that no runtime
 source references the Mole CLI.
 
@@ -346,8 +307,6 @@ source references the Mole CLI.
   Windows machine; the parser fixtures cover the documented output shapes.
 - Windows battery cycle count and battery temperature are not exposed by the
   OS; those fields show as missing instead of inventing values.
-- The full 2-column panel needs ~100+ columns; narrow panels render a
-  single-column layout automatically.
 
 ## License / attribution
 

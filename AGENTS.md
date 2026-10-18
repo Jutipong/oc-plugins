@@ -4,7 +4,7 @@ Monorepo for OpenCode V2 plugins. Plugins: **esp-buddy** — a playful desk budd
 that mirrors OpenCode activity onto an ESP32-S3 RLCD buddy screen (ported from
 the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) —
 and **sys-status** — a native macOS/Windows system dashboard for the CLI
-sidebar and session panel (no `mo` dependency).
+sidebar (no `mo` dependency).
 
 ## Commits — explicit confirmation required
 
@@ -123,16 +123,17 @@ sidebar and session panel (no `mo` dependency).
     (`╭─╮│╰╯` / `┏━┓┃┗┛`, tone `border`), top border `◈ System`, **no update
     clock**. Framed content is 32 cells; `frame: "none"` uses 36 and
     prepends a `● <health score>` header line.
-  - **Sidebar `sidebarMode: "full"`** — stacks the `/sys` cards into the
+  - **Sidebar `sidebarMode: "full"`** — stacks the dashboard cards into the
     sidebar as one column (36 cells, 32 framed): CPU, Memory, Disk, Power,
-    Network; no health/identity header (score + machine + OS stay in the
-    panel), it starts with the CPU card. All through the same `frame`/
+    Network; no health/identity header, it starts with the CPU card. All
+    through the same `frame`/
     `barStyle`/`colorMode`/`cores`. Meters fill the row (label + meter +
-    right-aligned value: 19 cells framed / 23 unframed, power 18/22;
-    network sparklines 15/19). All
+    right-aligned value: 19 cells framed / 23 unframed, power 18/22);
+    network shows `Up` / `Down` rates as numbers in that right column, no
+    sparklines. All
     card titles carry their headline value right-aligned (chip + GHz, memory
     used / total, disk used / total, battery level, network IP; long values
-    clipped with `…`; panel keeps plain titles). Redundant rows are dropped
+    clipped with `…`). Redundant rows are dropped
     in the sidebar only: disk `Total` and `Used`, memory `Free` and `Total`,
     power `Level` and the network footer (both return when the title value is
     missing).
@@ -140,21 +141,19 @@ sidebar and session panel (no `mo` dependency).
     `airy` (faint separator; falls back to `spacing`). Overflowing fields are
     dropped, not mangled (`4P+4E`, battery `· Charged` at 32 cells).
     ~23–27 lines tall; `mode: "full"` is the model option.
-  - **`/sys` panel** — `session.panel` slot, opened by the
-    `sys-status.open` command (slash `/sys`, palette
-    "System status"): full dashboard at 100 columns, header health line +
-    hardware identity, then CPU/Disk and Memory/Power columns and Network.
-    Keys: `f` fullscreen · `c` cycle CPU cores (summary/all) · `r` restart
-    the collector · `q` close. The panel replaces the sidebar while open; on
-    narrow terminals it opens fullscreen. `SYS_STATUS_AUTO_PANEL=1` is a
-    debug helper that auto-opens it for smoke tests.
 - **Health score**: `src/health.mjs` computes the transparent heuristic
   (readme has the penalty table: CPU/memory/disk, battery health + cycles,
   disk I/O, uptime) → `● 97 · Excellent · Restart Recommended` on a healthy
-  Mac fixture; shown in the panel header and the unframed sidebar header.
+  Mac fixture; shown in the unframed sidebar header.
+- **Battery telemetry**: `ioreg -rc AppleSmartBattery` prints discharging
+  power/current as unsigned 64-bit (`2^64 + x`: `BatteryPower=18446744073709540941`
+  is −10.675 W); `parseIoregBattery` folds it back to signed with BigInt and
+  drops implausible magnitudes (watts > 500 / amps > 50 / volts > 100). On
+  battery power the `Input` row hides and cycles move to a `Cycles` row when
+  no adapter is attached.
 - **Bars and colors**: sidebar bars are full-width on their own line below a
   label/value line. `barStyle` = `mole` (default: `█` whole cells + `░` track
-  in the same threshold color, CPU/mem/disk 60/85, battery level/health
+  in the same threshold color, CPU/mem/disk/PWR load 50/80, battery level/health
   20/50) or `solid` (filled blocks only). `colorMode` = `mole` (default:
   fixed palette #A5D6A7 / #FFA94D / #FF5F5F / #C79FD7 / #404040 / #737373)
   or `theme` (resolved OpenCode theme). The sidebar `PWR` bar is scaled to
@@ -162,7 +161,7 @@ sidebar and session panel (no `mo` dependency).
 - **Options** (cli.json): `interval` (1–10 s), `sidebar`, `sidebarMode`
   (`compact` default / `full` stacked dashboard), `placement` (top/bottom of
   `sidebar.content`), `spacing` (compact block), `rowSpacing` (full sidebar
-  card gaps), `cores` (panel + full sidebar CPU cores: `p` summary / `all`),
+  card gaps), `cores` (full sidebar CPU cores: `p` summary / `all`),
   `barStyle`, `frame`, `colorMode`.
 - **Bun quirks on this machine**: `os.loadavg()` returns ~0 (use
   `sysctl vm.loadavg`), `fs.statfs` is missing (use `df`), but

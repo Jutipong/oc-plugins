@@ -22,7 +22,7 @@ import {
   formatRate,
   formatVolts,
   formatWatts,
-  sparkline,
+  toneForUsage,
   truncate,
 } from "../src/format.mjs"
 import { computeHealth } from "../src/health.mjs"
@@ -42,8 +42,8 @@ import {
   parseWin32Hardware,
   parseWin32Sample,
 } from "../src/parser.mjs"
-import { buildPanelModel, buildSidebarModel, combineColumns, lineWidth } from "../src/model.mjs"
-import { createDeltaTracker, createRingBuffer, ema } from "../src/collector/common.mjs"
+import { buildSidebarModel, lineWidth } from "../src/model.mjs"
+import { createDeltaTracker, ema } from "../src/collector/common.mjs"
 import { clampInterval, sampleCpu } from "../src/collector/index.mjs"
 import {
   cliConfigPath,
@@ -173,8 +173,6 @@ function macSnapshot() {
       ip: "192.0.2.10",
       rxRate: 0.01,
       txRate: 0,
-      rxHistory: [0, 0.01, 0.02, 0.005, 0.03],
-      txHistory: [0, 0, 0.01],
       tunnel: false,
     },
     health: {},
@@ -215,7 +213,7 @@ function winSnapshot() {
     },
     disk: { mount: sample.disk.name, total: sample.disk.total, used: sample.disk.total - sample.disk.free, free: sample.disk.free, usedPercent: ((sample.disk.total - sample.disk.free) / sample.disk.total) * 100, readRate: sample.io.readRate, writeRate: sample.io.writeRate },
     power: { present: true, percent: sample.battery.percent, status: sample.battery.status, healthPercent: sample.battery.healthPercent, healthLabel: "Good", cycles: null, acWatts: null, timeLeft: "3:30" },
-    network: { name: sample.net.name, ip: sample.net.ip, gateway: sample.net.gateway, rxRate: 0.02, txRate: 0.01, rxHistory: [0.01, 0.02, 0.03], txHistory: [0, 0.01], tunnel: false },
+    network: { name: sample.net.name, ip: sample.net.ip, gateway: sample.net.gateway, rxRate: 0.02, txRate: 0.01, tunnel: false },
     health: {},
     errors: [],
   }
@@ -274,9 +272,7 @@ test("bars render fixed widths", () => {
   eq(barText(0, 10), "░".repeat(10))
 })
 
-test("sparkline and duration helpers", () => {
-  eq([...sparkline([1, 2, 3], 3)], ["▃", "▅", "█"])
-  eq(sparkline([], 3), "▁▁▁")
+test("duration and truncate helpers", () => {
   eq(formatDuration(14 * 86400 + 16 * 3600), "14d 16h")
   eq(formatDuration(90), "1m 30s")
   eq(truncate("MacBook Air", 6), "MacBo…")
@@ -402,6 +398,33 @@ test("parseIoregBattery reads discharging power", () => {
   eq(battery.adapterWatts, 57)
 })
 
+test("parseIoregBattery normalizes unsigned 64-bit telemetry", () => {
+  const battery = parseIoregBattery(`
+    "ExternalConnected" = No
+    "Amperage" = 18446744073709550651
+    "Voltage" = 12094
+    "IsCharging" = No
+    "FullyCharged" = No
+    "PowerTelemetryData" = {"SystemPowerIn"=0,"SystemCurrentIn"=0,"SystemVoltageIn"=0,"BatteryPower"=18446744073709540941}
+  `)
+  eq(battery.externalConnected, false)
+  eq(battery.systemWatts, 0)
+  eq(battery.batteryWatts, 10.675)
+  eq(battery.batteryAmps, 0.965)
+  eq(battery.batteryVolts, 12.094)
+})
+
+test("parseIoregBattery drops implausible telemetry", () => {
+  const battery = parseIoregBattery(`
+    "Amperage" = 999999999
+    "Voltage" = 12094
+    "PowerTelemetryData" = {"SystemPowerIn"=0,"SystemCurrentIn"=0,"SystemVoltageIn"=0,"BatteryPower"=999999999}
+  `)
+  eq(battery.batteryWatts, null)
+  eq(battery.batteryAmps, null)
+  eq(battery.batteryVolts, 12.094)
+})
+
 test("system_profiler parsers", () => {
   eq(parseSystemProfilerHardware(fixture("darwin-profiler-hardware.json")).name, "MacBook Air")
   eq(parseSystemProfilerDisplays(fixture("darwin-profiler-displays.json")).gpuCores, 7)
@@ -502,6 +525,16 @@ test("sidebar network shows zero rates instead of idle", () => {
   excludes(flatText(model.lines), "idle")
 })
 
+test("network card lists Up/Down rates as numbers", () => {
+  const model = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "rounded", rowSpacing: "compact" })
+  const rows = model.lines.map((line) => line.map((segment) => segment.text).join(""))
+  const title = rows.findIndex((row) => row.includes("⇅ Network"))
+  ok(title > 0, "network card is rendered")
+  // Right-aligned in the shared value column; no sparklines.
+  eq(rows[title + 1], `│ Up${" ".repeat(24)}0 MB/s │`)
+  eq(rows[title + 2], `│ Down${" ".repeat(19)}0.01 MB/s │`)
+})
+
 test("sidebar frame mirrors go-usage", () => {
   const framed = buildSidebarModel(macSnapshot(), { width: 36, frame: "rounded", spacing: "compact" })
   const top = flatText([framed.lines[0]])
@@ -523,7 +556,7 @@ test("sidebar frame mirrors go-usage", () => {
   eq(lineWidth(plain.lines[0]), 36)
 })
 
-test("full sidebar stacks the /sys dashboard", () => {
+test("full sidebar stacks the dashboard cards", () => {
   const model = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "rounded", rowSpacing: "airy" })
   const text = flatText(model.lines)
   eq(model.lines.length, 27)
@@ -579,17 +612,8 @@ test("full sidebar stacks the /sys dashboard", () => {
   const netTitle = rowText.find((line) => line.includes("⇅ Network"))
   ok(netTitle?.endsWith("192.0.2.10 │"), `network ip must be right-aligned: ${netTitle}`)
   excludes(text, "en0")
-  const panel = buildPanelModel(macSnapshot(), { width: 120 })
-  eq(flatText([panel.left[0]]), "◉ CPU")
-  eq(flatText([panel.right[0]]), "◫ Memory")
-  includes(flatText(panel.left), "Total  228.3 GB")
-  includes(flatText(panel.left), "147G used · 57G free")
-  includes(flatText(panel.right), "Free")
-  includes(flatText(panel.right), "Total  10.2 GB / 16.0 GB")
-  includes(flatText(panel.right), "Level")
-  includes(flatText(panel.full), "en0 · 192.0.2.10")
   const barLines = model.lines.filter((line) => line.some((segment) => /[█░]/.test(segment.text)))
-  ok(barLines.length >= 10, `expected the full dashboard meters, got ${barLines.length}`)
+  ok(barLines.length >= 8, `expected the full dashboard meters, got ${barLines.length}`)
 })
 
 test("full sidebar cores option lists summary or all cores", () => {
@@ -669,35 +693,49 @@ test("full sidebar works for a Windows snapshot", () => {
   excludes(text, "Process")
 })
 
-test("panel model uses two columns on wide terminals", () => {
-  const model = buildPanelModel(macSnapshot(), { width: 120, cores: "p" })
-  eq(model.twoColumn, true)
-  ok(model.columnWidth >= 48)
-  const header = flatText(model.header)
-  includes(header, "Status")
-  includes(header, "Health")
-  includes(header, "● 97")
-  includes(header, "Excellent")
-  includes(flatText(model.left), "CPU")
-  includes(flatText(model.left), "Disk")
-  includes(flatText(model.right), "Memory")
-  includes(flatText(model.right), "Power")
-  includes(flatText(model.right), "Input")
-  includes(flatText(model.right), "10.6W")
-  includes(flatText(model.right), "0.52A")
-  includes(flatText(model.right), "20.3V")
-  includes(flatText(model.right), "Battery")
-  includes(flatText(model.right), "57W max")
-  includes(flatText(model.full), "Network")
-  includes(flatText(model.full), "Down")
-  includes(flatText(model.footer), "fullscreen")
-  excludes(flatText([...model.header, ...model.left, ...model.right, ...model.full, ...model.footer]), "Process")
+test("battery shows the discharge draw instead of wrapped u64 values", () => {
+  const snapshot = macSnapshot()
+  snapshot.power = {
+    ...snapshot.power,
+    percent: 91,
+    status: "Discharging",
+    externalConnected: false,
+    charging: false,
+    fullyCharged: false,
+    systemWatts: 0,
+    systemAmps: 0,
+    systemVolts: 0,
+    batteryWatts: 10.675,
+    batteryAmps: 0.965,
+    batteryVolts: 12.094,
+    adapterWatts: null,
+    acWatts: null,
+    cycles: 259,
+  }
+  const full = buildSidebarModel(snapshot, { width: 36, mode: "full", frame: "none", rowSpacing: "airy" })
+  const text = flatText(full.lines)
+  includes(text, "Battery")
+  includes(text, "10.7W")
+  includes(text, "Cycles")
+  includes(text, "259")
+  excludes(text, "Input")
+  excludes(text, "Adapter")
+  excludes(text, "18446744073709540")
+
+  const compact = buildSidebarModel(snapshot, { width: 36, frame: "none", spacing: "compact" })
+  const compactText = flatText(compact.lines)
+  includes(compactText, "PWR")
+  includes(compactText, "10.7W")
+  excludes(compactText, "18446744073709540")
 })
 
-test("panel model collapses to one column when narrow", () => {
-  const model = buildPanelModel(macSnapshot(), { width: 80, cores: "p" })
-  eq(model.twoColumn, false)
-  eq(model.columnWidth, 76)
+test("usage tones: below 50 green, 50-79 orange, 80+ red", () => {
+  eq(toneForUsage(0), "success")
+  eq(toneForUsage(49.9), "success")
+  eq(toneForUsage(50), "warning")
+  eq(toneForUsage(79.9), "warning")
+  eq(toneForUsage(80), "error")
+  eq(toneForUsage(100), "error")
 })
 
 test("mole bar style uses a colored track; solid uses spaces", () => {
@@ -716,28 +754,6 @@ test("mole bar style uses a colored track; solid uses spaces", () => {
   ok(diskLine?.some((segment) => segment.tone === "warning"), "disk 73% should be orange")
   const powerLine = mole.lines.find((line) => line.some((segment) => segment.text.includes("PWR")))
   ok(powerLine?.some((segment) => segment.tone === "success"), "battery 100% should be green")
-
-  const panelMole = buildPanelModel(macSnapshot(), { width: 120, barStyle: "mole" })
-  includes(flatText([...panelMole.left, ...panelMole.right]), "░")
-  const panelSolid = buildPanelModel(macSnapshot(), { width: 120, barStyle: "solid" })
-  excludes(flatText([...panelSolid.left, ...panelSolid.right]), "░")
-})
-
-test("panel model works for a Windows snapshot", () => {
-  const model = buildPanelModel(winSnapshot(), { width: 120 })
-  const text = flatText([...model.header, ...model.left, ...model.right, ...model.full])
-  includes(text, "LENOVO 20XW004AUS")
-  includes(text, "Windows 11 Pro")
-  includes(text, "Ethernet")
-  excludes(text, "Process")
-})
-
-test("combineColumns pads the left column", () => {
-  const left = [[{ text: "a", tone: "base" }]]
-  const right = [[{ text: "b", tone: "base" }]]
-  const rows = combineColumns(left, right, 10, 3)
-  eq(rows.length, 1)
-  eq(lineWidth(rows[0]), 14)
 })
 
 test("unsupported platforms render a friendly message", () => {
@@ -749,10 +765,7 @@ test("unsupported platforms render a friendly message", () => {
 // collector helpers
 // ---------------------------------------------------------------------------
 
-test("ring buffer and ema", () => {
-  const buffer = createRingBuffer(3)
-  for (const value of [1, 2, 3, 4, 5]) buffer.push(value)
-  eq(buffer.toArray(), [3, 4, 5])
+test("ema smoothing", () => {
   eq(ema(10, 20, 0.5), 15)
   eq(ema(null, 20, 0.5), 20)
 })
@@ -845,16 +858,6 @@ test("runtime sources never depend on the Mole CLI", () => {
     const text = fs.readFileSync(file, "utf8")
     ok(!pattern.test(text), `${path.relative(PLUGIN_DIR, file)} references Mole as a runtime dependency`)
   }
-})
-
-// ---------------------------------------------------------------------------
-// slash command naming
-// ---------------------------------------------------------------------------
-
-test("the panel command is exposed only as /sys", () => {
-  const entry = fs.readFileSync(path.join(PLUGIN_DIR, "src", "entry.tsx"), "utf8")
-  includes(entry, 'slash: { name: "sys" }', "dedicated /sys slash command")
-  excludes(entry, 'aliases: ["system"]', "no /system alias")
 })
 
 // ---------------------------------------------------------------------------

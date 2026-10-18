@@ -225,9 +225,15 @@ export function parseIoregStorageStats(text) {
 
 export function parseIoregBattery(text) {
   const raw = String(text ?? "")
+  // macOS prints negative battery telemetry as unsigned 64-bit (2^64 + x)
+  // while discharging; fold it back to signed so the magnitude is real.
+  const signed = (literal) => {
+    const value = BigInt(literal)
+    return value >= 2n ** 63n ? Number(value - 2n ** 64n) : Number(value)
+  }
   const number = (key) => {
     const match = raw.match(new RegExp(`"${key}"\\s*=\\s*(-?\\d+)`))
-    return match ? Number(match[1]) : null
+    return match ? signed(match[1]) : null
   }
   const flag = (key) => {
     const match = raw.match(new RegExp(`"${key}"\\s*=\\s*(Yes|No|true|false)`, "i"))
@@ -237,20 +243,23 @@ export function parseIoregBattery(text) {
   const telemetry = raw.match(/"PowerTelemetryData"\s*=\s*\{([^}]*)\}/)?.[1] ?? ""
   const telemetryNumber = (key) => {
     const match = telemetry.match(new RegExp(`"${key}"\\s*=\\s*(-?\\d+)`))
-    return match ? Number(match[1]) : null
+    return match ? signed(match[1]) : null
   }
+  // Ignore implausible magnitudes (watts > 500 / amps > 50 / volts > 100 in
+  // the raw mW / mA / mV units) instead of rendering garbage.
+  const bounded = (value, max) => (hasNumber(value) && Math.abs(value) <= max ? value : null)
   const adapterMatch = raw.match(/"AdapterDetails"\s*=\s*\{[^}]*?"Watts"\s*=\s*(\d+)/)
   const cycles = number("CycleCount")
   const designCapacity = number("DesignCapacity")
   const fullChargeCapacity = number("FullChargeCapacity")
   const nominalCapacity = number("NominalChargeCapacity")
   const temperature = number("Temperature")
-  const amperage = number("Amperage")
-  const voltage = number("Voltage")
-  const systemPower = telemetryNumber("SystemPowerIn")
-  const systemCurrent = telemetryNumber("SystemCurrentIn")
-  const systemVoltage = telemetryNumber("SystemVoltageIn")
-  const batteryPower = telemetryNumber("BatteryPower")
+  const amperage = bounded(number("Amperage"), 50_000)
+  const voltage = bounded(number("Voltage"), 100_000)
+  const systemPower = bounded(telemetryNumber("SystemPowerIn"), 500_000)
+  const systemCurrent = bounded(telemetryNumber("SystemCurrentIn"), 50_000)
+  const systemVoltage = bounded(telemetryNumber("SystemVoltageIn"), 100_000)
+  const batteryPower = bounded(telemetryNumber("BatteryPower"), 500_000)
   const capacity = fullChargeCapacity ?? nominalCapacity
   const healthPercent =
     hasNumber(designCapacity) && designCapacity > 0 && hasNumber(capacity)
