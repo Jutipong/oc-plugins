@@ -6,9 +6,9 @@ import { LineList } from "./kit.tsx"
 const SIDEBAR_WIDTH = 36
 
 /**
- * Compact status block for `sidebar.content`. Subscribes to the shared
- * collector on mount; the collector stops itself a few seconds after the last
- * sidebar/panel unmounts.
+ * Compact or full status block for `sidebar.content`. Subscribes to the
+ * shared collector on mount; the collector stops itself a few seconds after
+ * the last sidebar/panel unmounts.
  */
 export function SidebarStatus(props) {
   const [snapshot, setSnapshot] = createSignal(null)
@@ -18,7 +18,17 @@ export function SidebarStatus(props) {
     onCleanup(unsubscribe)
   })
 
-  const model = createMemo(() => buildSidebarModel(snapshot(), { width: SIDEBAR_WIDTH, spacing: props.spacing, barStyle: props.barStyle, frame: props.frame }))
+  const model = createMemo(() =>
+    buildSidebarModel(snapshot(), {
+      width: SIDEBAR_WIDTH,
+      mode: props.mode,
+      spacing: props.spacing,
+      rowSpacing: props.rowSpacing,
+      cores: props.cores,
+      barStyle: props.barStyle,
+      frame: props.frame,
+    }),
+  )
 
   return (
     <box flexDirection="column">

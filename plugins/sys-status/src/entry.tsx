@@ -15,6 +15,12 @@ export default Plugin.define({
     const barStyle = options.barStyle === "solid" ? "solid" : "mole"
     const frame = options.frame === "heavy" || options.frame === "none" ? options.frame : "rounded"
     const colorMode = options.colorMode === "theme" ? "theme" : "mole"
+    const sidebarMode = options.sidebarMode === "full" ? "full" : "compact"
+    const rowSpacing =
+      options.rowSpacing === "compact" || options.rowSpacing === "normal" || options.rowSpacing === "airy"
+        ? options.rowSpacing
+        : undefined
+    const cores = options.cores === "all" ? "all" : "p"
     const collector = createCollector({
       intervalMs: clampInterval(Number.isFinite(seconds) && seconds > 0 ? seconds * 1000 : undefined),
     })
@@ -47,7 +53,19 @@ export default Plugin.define({
       disposers.push(
         context.ui.slot({
           ...claim,
-          render: () => <SidebarStatus context={context} collector={collector} spacing={options.spacing} barStyle={barStyle} frame={frame} colorMode={colorMode} />,
+          render: () => (
+            <SidebarStatus
+              context={context}
+              collector={collector}
+              mode={sidebarMode}
+              spacing={options.spacing}
+              rowSpacing={rowSpacing}
+              cores={cores}
+              barStyle={barStyle}
+              frame={frame}
+              colorMode={colorMode}
+            />
+          ),
         }),
       )
     }

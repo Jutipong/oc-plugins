@@ -28,6 +28,73 @@ a transparent health score.
 ╰──────────────────────────────────╯
 ```
 
+### Full sidebar (`sidebarMode: "full"`)
+
+The same dashboard as `/sys` — health header, CPU, memory, disk, power and
+network — stacked into the 36-column sidebar (single column; the panel's
+two-column layout needs ~100 columns). `frame`, `barStyle`, `colorMode`,
+`cores` and `rowSpacing` all apply:
+
+```text
+╭─ ◈ System ───────────────────────╮
+│ ● 97 Excellent                   │
+│ Restart Recommended              │
+│ MacBook Air · Apple M1, 7GPU     │
+│ RAM 16.0 GB · Disk 228.3 GB      │
+│ macOS 27.0.1 · up 14d 16h        │
+│ ──────────────────────────────── │
+│ ◉ CPU         Apple M1 · 2.4 GHz │
+│ Total  █████░░░░░░░░░░░░░░ 29.1% │
+│ Core1  ████████░░░░░░░░░░░ 44.4% │
+│ Core2  ███████░░░░░░░░░░░░ 40.9% │
+│ Core3  ███████░░░░░░░░░░░░ 40.4% │
+│ Core4  ███████░░░░░░░░░░░░ 39.8% │
+│   load 3.41 / 3.62 / 3.80        │
+│ ──────────────────────────────── │
+│ ◫ Memory       10.2 GB / 16.0 GB │
+│ Used   ████████████░░░░░░░ 63.6% │
+│ Cache 3.2 GB · Avail 5.8 GB      │
+│ ──────────────────────────────── │
+│ ▥ Disk       147.3 GB / 228.3 GB │
+│ INTR   █████████████░░░░░░   73% │
+│ I/O    R 0.40 MB/s · W 1.7 MB/s  │
+│ ──────────────────────────────── │
+│ ◪ Power                     100% │
+│ Health  ███████████████░░░   88% │
+│ Input   10.6W · 0.52A @ 20.3V    │
+│ Battery 0W · 0.00A @ 12.7V       │
+│ Adapter 57W max · 259 cycles     │
+│ ──────────────────────────────── │
+│ ⇅ Network             192.0.2.10 │
+│ Down   ▁▁▁▁▁▁▁▁▁▁▁▃▅▂█ 0.01 MB/s │
+│ Up     ▁▁▁▁▁▁▁▁▁▁▁▁▁▁█    0 MB/s │
+╰──────────────────────────────────╯
+```
+
+- Card titles carry their headline value on the right: CPU chip + speed,
+  memory used / total, disk used / total, battery level and network IP.
+  Redundant rows are dropped in the sidebar: the disk `Total` and `Used` rows
+  (used / total is in the title), the memory `Free` and `Total` rows, the
+  power `Level` row (the level is in the title) and the network footer with
+  the interface name and IP (the IP is in the title). The power `Level` and
+  network footer rows come back automatically when the title has no value to
+  show.
+- Meters fill the row: label + meter + right-aligned value. They are **19
+  cells** wide inside the default 32-cell framed content (23 unframed) — the
+  percent never wraps or truncates and every value shares the same right
+  column. The network sparklines are 15 cells (19 unframed).
+- The CPU card title right-aligns the chip and speed (`◉ CPU … Apple M1 ·
+  2.4 GHz`); long chip names are clipped with `…`. The `/sys` panel keeps the
+  plain card titles.
+- Fields that no longer fit are dropped instead of mangled: at 32 framed
+  columns the refresh rate, the `4P+4E` load suffix and the battery
+  `· Charged` status are omitted; `frame: "none"` shows them when they fit.
+- `rowSpacing` (`compact` / `normal` / `airy`) controls the gaps between
+  the cards: none, one blank line, or a faint separator line.
+- The full stack is ~29 (`compact`) to ~33 (`airy`) lines tall. If your
+  terminal clips the bottom, use `frame: "none"`, `rowSpacing: "compact"`
+  or `cores: "p"` (the default) to shorten it.
+
 ### `/sys` panel (press `f` for fullscreen)
 
 ```text
@@ -109,7 +176,9 @@ Make sure the sidebar is not disabled:
 ## Usage
 
 - **Sidebar** — renders automatically in every session (unless
-  `options.sidebar` is `false`).
+  `options.sidebar` is `false`). `sidebarMode: "compact"` (default) shows the
+  single summary block; `sidebarMode: "full"` stacks the whole `/sys`
+  dashboard into the sidebar instead.
 - **`/sys`** (alias `/system`) — opens the full dashboard panel in the current
   session. Also available from the command palette as **System status**.
 - Panel keys: `f` fullscreen · `c` cycle CPU cores (summary/all) · `r` restart
@@ -125,10 +194,12 @@ Make sure the sidebar is not disabled:
   "package": "file:///path/to/plugins/sys-status",
   "options": {
     "interval": 2,          // seconds between samples (1-10)
-    "sidebar": true,        // show the compact sidebar block
+    "sidebar": true,        // show the sidebar block
+    "sidebarMode": "compact", // "compact" (summary block) | "full" (stacked dashboard)
     "placement": "top",     // "top" | "bottom" of sidebar.content
-    "spacing": "compact",   // "compact" | "normal" | "airy"
-    "cores": "p",           // panel CPU cores: "p" (summary) | "all"
+    "spacing": "compact",   // compact block spacing: "compact" | "normal" | "airy"
+    "rowSpacing": "airy",   // full sidebar card gaps (falls back to `spacing`)
+    "cores": "p",           // CPU cores (panel + full sidebar): "p" (summary) | "all"
     "barStyle": "mole",     // "mole" (█ + ░ track) | "solid" (filled bar only)
     "frame": "rounded",     // "rounded" | "heavy" | "none"
     "colorMode": "mole"     // "mole" (fixed palette) | "theme" (follow OpenCode theme)
@@ -174,7 +245,8 @@ The sidebar block draws its own frame, matching the go-usage plugin:
 - Framed content is **32 cells wide** (36 total − 2 border − 2 padding);
   `frame: "none"` uses the full 36 cells
 - The health score/message is not repeated inside the frame; open `/sys` for
-  the full health card
+  the full health card (unless `sidebarMode: "full"`, which puts the health
+  line and every card inside the frame)
 
 ## Colors
 
@@ -199,6 +271,9 @@ The default `barStyle: "mole"` mirrors Mole's gauges:
 - Sidebar meters use a **full-width bar on its own line** below a
   label/value line — the same two-line layout as the go-usage plugin
 - Framed sidebar bars are 32 cells; `frame: "none"` uses 36 cells
+- Full sidebar (`sidebarMode: "full"`) keeps the label, meter and a
+  right-aligned value on one line; the meter is **19 cells** framed / 23
+  unframed (18/22 under the 8-cell power labels) so the row is full
 - Panel bars are 20–24 cells depending on width
 - `█` for whole cells and `░` for the empty track (full blocks, no partial
   eighth-block edge)

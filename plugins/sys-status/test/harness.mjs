@@ -523,6 +523,156 @@ test("sidebar frame mirrors go-usage", () => {
   eq(lineWidth(plain.lines[0]), 36)
 })
 
+test("full sidebar stacks the /sys dashboard", () => {
+  const model = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "rounded", rowSpacing: "airy" })
+  const text = flatText(model.lines)
+  eq(model.lines.length, 33)
+  for (const line of model.lines) eq(lineWidth(line), 36)
+  for (const needle of [
+    "╭─ ◈ System",
+    "● 97",
+    "Excellent",
+    "Restart Recommended",
+    "MacBook Air · Apple M1, 7GPU",
+    "RAM 16.0 GB · Disk 228.3 GB",
+    "macOS 27.0.1 · up 14d 16h",
+    "◉ CPU",
+    "Core1",
+    "Core4",
+    "load 3.41 / 3.62 / 3.80",
+    "◫ Memory",
+    "Cache 3.2 GB · Avail 5.8 GB",
+    "▥ Disk",
+    "INTR",
+    "I/O",
+    "◪ Power",
+    "Health",
+    "Input",
+    "Battery",
+    "Adapter",
+    "⇅ Network",
+    "╰",
+  ]) {
+    includes(text, needle)
+  }
+  excludes(text, "4P+4E")
+  excludes(text, "60Hz")
+  excludes(text, "Process")
+  excludes(text, "…")
+  const rowText = model.lines.map((line) => flatText([line]))
+  const cpuRow = rowText.find((line) => line.includes("Total") && /[█░]/.test(line))
+  ok(cpuRow?.endsWith("29.1% │"), `full sidebar values must be right-aligned: ${cpuRow}`)
+  eq((cpuRow.match(/[█░]/g) ?? []).length, 19)
+  const healthRow = rowText.find((line) => line.includes("Health") && /[█░]/.test(line))
+  eq((healthRow.match(/[█░]/g) ?? []).length, 18)
+  const cpuTitle = rowText.find((line) => line.includes("◉ CPU"))
+  ok(cpuTitle?.startsWith("│ ◉ CPU "), `CPU title must lead with ◉ CPU: ${cpuTitle}`)
+  ok(cpuTitle?.endsWith("Apple M1 · 2.4 GHz │"), `CPU chip must be right-aligned: ${cpuTitle}`)
+  eq(lineWidth(model.lines[rowText.indexOf(cpuTitle)]), 36)
+  const memTitle = rowText.find((line) => line.includes("◫ Memory"))
+  ok(memTitle?.endsWith("10.2 GB / 16.0 GB │"), `memory title must show used / total: ${memTitle}`)
+  excludes(text, "Free")
+  excludes(text, "Total  10.2 GB / 16.0 GB")
+  const diskTitle = rowText.find((line) => line.includes("▥ Disk"))
+  ok(diskTitle?.endsWith("147.3 GB / 228.3 GB │"), `disk title must show used / total: ${diskTitle}`)
+  excludes(text, "Total  228.3 GB")
+  excludes(text, "147G used")
+  const powerTitle = rowText.find((line) => line.includes("◪ Power"))
+  ok(powerTitle?.endsWith("100% │"), `power level must be right-aligned: ${powerTitle}`)
+  excludes(text, "Level")
+  const netTitle = rowText.find((line) => line.includes("⇅ Network"))
+  ok(netTitle?.endsWith("192.0.2.10 │"), `network ip must be right-aligned: ${netTitle}`)
+  excludes(text, "en0")
+  const panel = buildPanelModel(macSnapshot(), { width: 120 })
+  eq(flatText([panel.left[0]]), "◉ CPU")
+  eq(flatText([panel.right[0]]), "◫ Memory")
+  includes(flatText(panel.left), "Total  228.3 GB")
+  includes(flatText(panel.left), "147G used · 57G free")
+  includes(flatText(panel.right), "Free")
+  includes(flatText(panel.right), "Total  10.2 GB / 16.0 GB")
+  includes(flatText(panel.right), "Level")
+  includes(flatText(panel.full), "en0 · 192.0.2.10")
+  const barLines = model.lines.filter((line) => line.some((segment) => /[█░]/.test(segment.text)))
+  ok(barLines.length >= 10, `expected the full dashboard meters, got ${barLines.length}`)
+})
+
+test("full sidebar cores option lists summary or all cores", () => {
+  const summary = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "none", rowSpacing: "airy", cores: "p" })
+  const all = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "none", rowSpacing: "airy", cores: "all" })
+  includes(flatText(summary.lines), "Core4")
+  excludes(flatText(summary.lines), "Core5")
+  includes(flatText(all.lines), "Core8")
+  ok(all.lines.length > summary.lines.length)
+  for (const line of all.lines) ok(lineWidth(line) <= 36, `full sidebar line too wide: ${lineWidth(line)}`)
+  const cpuRow = summary.lines.map((line) => flatText([line])).find((line) => line.includes("Total") && /[█░]/.test(line))
+  eq((cpuRow.match(/[█░]/g) ?? []).length, 23)
+  const cpuTitle = summary.lines.map((line) => flatText([line])).find((line) => line.includes("◉ CPU"))
+  ok(cpuTitle?.endsWith("Apple M1 · 2.4 GHz"), `unframed CPU chip must end the line: ${cpuTitle}`)
+})
+
+test("full sidebar rowSpacing controls the card gaps", () => {
+  const base = { width: 36, mode: "full", frame: "none" }
+  const compact = buildSidebarModel(macSnapshot(), { ...base, rowSpacing: "compact" })
+  const normal = buildSidebarModel(macSnapshot(), { ...base, rowSpacing: "normal" })
+  const airy = buildSidebarModel(macSnapshot(), { ...base, rowSpacing: "airy" })
+  eq(normal.lines.length, compact.lines.length + 5)
+  eq(airy.lines.length, compact.lines.length + 4)
+  eq(normal.lines.filter((line) => flatText([line]).trim() === "").length, 5)
+  eq(airy.lines.filter((line) => /^─+$/.test(flatText([line]))).length, 5)
+  const fallback = buildSidebarModel(macSnapshot(), { ...base, spacing: "airy" })
+  eq(flatText(fallback.lines), flatText(airy.lines))
+  const bogus = buildSidebarModel(macSnapshot(), { ...base, rowSpacing: "bogus", spacing: "compact" })
+  eq(flatText(bogus.lines), flatText(compact.lines))
+})
+
+test("full sidebar follows the frame option", () => {
+  const rounded = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "rounded", rowSpacing: "airy" })
+  includes(flatText([rounded.lines[0]]), "╭")
+  includes(flatText([rounded.lines.at(-1)]), "╯")
+  for (const line of rounded.lines) eq(lineWidth(line), 36)
+  for (const line of rounded.lines.slice(1, -1)) includes(flatText([line]), "│")
+
+  const heavy = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "heavy", rowSpacing: "airy" })
+  includes(flatText([heavy.lines[0]]), "┏")
+  includes(flatText([heavy.lines.at(-1)]), "┛")
+
+  const plain = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "none", rowSpacing: "airy" })
+  excludes(flatText(plain.lines), "╭")
+  ok(plain.lines.length < rounded.lines.length, "unframed full sidebar should be shorter")
+  includes(flatText(plain.lines), "60Hz")
+})
+
+test("full sidebar keeps mole/solid bars and placeholder states", () => {
+  const mole = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "none", barStyle: "mole" })
+  const solid = buildSidebarModel(macSnapshot(), { width: 36, mode: "full", frame: "none", barStyle: "solid" })
+  includes(flatText(mole.lines), "░")
+  excludes(flatText(solid.lines), "░")
+
+  const starting = buildSidebarModel(null, { width: 36, mode: "full" })
+  includes(flatText(starting.lines), "starting")
+  const unsupported = buildSidebarModel({ unsupported: true, updatedAt: 1, platform: "linux" }, { width: 36, mode: "full" })
+  includes(flatText(unsupported.lines), "macOS / Windows only")
+})
+
+test("full sidebar works for a Windows snapshot", () => {
+  const model = buildSidebarModel(winSnapshot(), { width: 36, mode: "full", frame: "none", rowSpacing: "airy" })
+  const text = flatText(model.lines)
+  includes(text, "LENOVO 20XW004AUS")
+  includes(text, "Windows 11 Pro")
+  for (const line of model.lines) ok(lineWidth(line) <= 36, `Windows full sidebar line too wide: ${lineWidth(line)}`)
+  const cpuTitle = model.lines.map((line) => flatText([line])).find((line) => line.includes("◉ CPU"))
+  ok(cpuTitle?.startsWith("◉ CPU "), `CPU title must lead with ◉ CPU: ${cpuTitle}`)
+  includes(cpuTitle, "…")
+  const titleFor = (icon) => model.lines.map((line) => flatText([line])).find((line) => line.includes(icon))
+  ok(titleFor("◫ Memory")?.endsWith("19.9 GB / 31.9 GB"), "Windows memory used / total")
+  ok(titleFor("▥ Disk")?.endsWith("476.9 GB / 953.9 GB"), "Windows disk used / total")
+  ok(titleFor("◪ Power")?.endsWith("87%"), "Windows battery level")
+  excludes(text, "Level")
+  ok(titleFor("⇅ Network")?.endsWith("192.0.2.20"), "Windows network ip")
+  excludes(text, "Ethernet")
+  excludes(text, "Process")
+})
+
 test("panel model uses two columns on wide terminals", () => {
   const model = buildPanelModel(macSnapshot(), { width: 120, cores: "p" })
   eq(model.twoColumn, true)
