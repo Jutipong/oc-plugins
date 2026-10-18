@@ -7,29 +7,29 @@ countdowns — the same numbers the Console shows at
 
 ```text
 ╭─ ◈ Go usage ────────── 22:31:05 ─╮
-│ Rolling             92% · 0h 31m │
+│ Rolling             0h 31m · 92% │
 │ █████████████████████████████░░░ │
-│ Weekly             45% · 12h 12m │
+│ Weekly             12h 12m · 45% │
 │ ██████████████░░░░░░░░░░░░░░░░░░ │
-│ Monthly             44% · 9d 14h │
+│ Monthly             9d 14h · 44% │
 │ ██████████████░░░░░░░░░░░░░░░░░░ │
 ╰──────────────────────────────────╯
 ```
 
-Bar colors follow the Console buckets: green below 70%, yellow 70–95%, red
-above 95%. Bars mirror **sys-status**: whole `█` cells for the used part
-(floor, no partial edge) and a `░` track — `barStyle: "mole"` (default) keeps
-fill and track in the same threshold color, `barStyle: "solid"` leaves the
-remainder blank.
+Bar colors use the same buckets as sys-status (not the Console's): green below
+50%, yellow 50–79%, red 80% and above. Bars mirror **sys-status**: whole `█`
+cells for the used part (floor, no partial edge) and a `░` track —
+`barStyle: "mole"` (default) keeps fill and track in the same threshold color,
+`barStyle: "solid"` leaves the remainder blank.
 
 Colors follow sys-status too — `colorMode: "mole"` (default) uses the fixed
 Mole palette:
 
 | tone | color | used for |
 | --- | --- | --- |
-| success | `#A5D6A7` | meters below 70% |
-| warning | `#FFA94D` | 70–95% (and the stale clock) |
-| error | `#FF5F5F` | above 95% / failures |
+| success | `#A5D6A7` | meters below 50% |
+| warning | `#FFA94D` | 50–79% (and the stale clock) |
+| error | `#FF5F5F` | 80% and above / failures |
 | accent | `#C79FD7` | `◈ Go usage` title |
 | border | `#404040` | frame lines |
 | muted | `#737373` | reset countdown, clock, hints |

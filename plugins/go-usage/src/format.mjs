@@ -99,11 +99,11 @@ export function barText(percentValue, width = 36) {
   return bar(percentValue, width).text
 }
 
-/** Console tone buckets: > 95 danger, >= 70 warning, else success. */
+/** Usage buckets shared with sys-status: >= 80 danger, >= 50 warning, else success. */
 export function toneForMeter(percentValue) {
   const value = safeNumber(percentValue, 0)
-  if (value > 95) return "danger"
-  if (value >= 70) return "warning"
+  if (value >= 80) return "danger"
+  if (value >= 50) return "warning"
   return "success"
 }
 

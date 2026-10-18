@@ -70,6 +70,10 @@ function barSegments(shape, tone, barStyle) {
   return [seg(shape.filled, tone), seg(shape.empty, tone)]
 }
 
+/**
+ * Two lines per meter: the label line carries `0h 31m · 92%` (reset countdown
+ * first, percent last) and the full-width bar sits directly underneath.
+ */
 function meterLines(status, width, now, barStyle) {
   const lines = []
   for (const entry of status.meters ?? []) {
@@ -80,7 +84,7 @@ function meterLines(status, width, now, barStyle) {
     }
     const tone = toneForMeter(meter.percent)
     const reset = formatReset(meter.resetsAt, now)
-    const right = [seg(meter.badge, tone, true), ...(reset ? [seg(` · ${reset}`, "muted")] : [])]
+    const right = [...(reset ? [seg(`${reset} · `, "muted")] : []), seg(meter.badge, tone, true)]
     lines.push(alignLine([seg(entry.label, "base")], right, width))
     lines.push(barSegments(bar(meter.percent, width), tone, barStyle))
   }

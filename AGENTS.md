@@ -181,8 +181,8 @@ sidebar (no `mo` dependency).
   `https://opencode.ai/console`, env/option overridable). Response is nullable
   (no subscription): `access.meters.{fiveHour,week,month}` each
   `{resetsAt, limitMicroCents, usedMicroCents}` (micro-cents = 1e8/dollar,
-  strings for bigint safety). Console rules mirrored: tone `>95 danger`,
-  `>=70 warning`, else success; integer percent with `">99% used"` when
+  strings for bigint safety). Meter tones match sys-status: tone `>=80 danger`,
+  `>=50 warning`, else success; integer percent with `">99% used"` when
   rounding hits 100 without exhaustion; reset countdown
   `ceil(minutes)` → `9d 14h` / `12h 12m` / `0h 31m`.
 - **Auth**: the same OAuth device flow the CLI uses for its "OpenCode Console
@@ -203,8 +203,9 @@ sidebar (no `mo` dependency).
   content width 32 (36 − 2 border − 2 padding). Bars match sys-status:
   `barStyle` = `mole` (default: whole `█` cells + `░` track, **both in the
   threshold color**, floor — no partial edge) / `solid` (fill colored, faint
-  blank remainder); one label line (`92% · 0h 31m`) + one full-width bar
-  line per meter. **No footer when fresh**; only a stale warning line
+  blank remainder); one label line (`0h 31m · 92%` — countdown first,
+  percent last) + one full-width bar line per meter. **No footer when fresh**;
+  only a stale warning line
   (`stale · retrying automatically`) appears when the last refresh failed.
   `frame: "none"` falls back to the in-content header with 36-col lines.
 - **Colors**: `colorMode` = `mole` (default: sys-status's fixed palette,
