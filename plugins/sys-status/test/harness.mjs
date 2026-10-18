@@ -48,6 +48,7 @@ import { clampInterval, sampleCpu } from "../src/collector/index.mjs"
 import {
   cliConfigPath,
   configDirectory,
+  parseInstallOptions,
   patchCliConfig,
   removeCliPlugin,
   sidebarHidden,
@@ -831,6 +832,40 @@ test("patchCliConfig adds, preserves and updates entries", () => {
   const removed = removeCliPlugin(updated.text, url)
   eq(removed.removed, true)
   eq(removed.config.plugins.length, 2)
+})
+
+test("parseInstallOptions keeps only valid flag values", () => {
+  const full = parseInstallOptions([
+    "--sidebar-mode", "full",
+    "--row-spacing", "airy",
+    "--spacing", "normal",
+    "--interval", "3",
+    "--cores", "all",
+    "--placement", "bottom",
+    "--bar-style", "solid",
+    "--frame", "heavy",
+    "--color-mode", "theme",
+  ])
+  eq(full, {
+    interval: 3,
+    spacing: "normal",
+    rowSpacing: "airy",
+    barStyle: "solid",
+    frame: "heavy",
+    colorMode: "theme",
+    sidebarMode: "full",
+    cores: "all",
+    placement: "bottom",
+  })
+
+  eq(parseInstallOptions([]), { interval: 2 })
+  eq(parseInstallOptions(["--sidebar-mode", "wide"]), { interval: 2 })
+  eq(parseInstallOptions(["--sidebar-mode"]), { interval: 2 })
+  eq(parseInstallOptions(["--interval", "0"]), { interval: 2 })
+  eq(parseInstallOptions(["--interval", "abc"]), { interval: 2 })
+  eq(parseInstallOptions(["--interval", "5"]), { interval: 5 })
+  eq(parseInstallOptions(["--cores", "all"]), { interval: 2, cores: "all" })
+  eq(parseInstallOptions(["--dry-run", "--frame", "none"]), { interval: 2, frame: "none" })
 })
 
 // ---------------------------------------------------------------------------

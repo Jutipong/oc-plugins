@@ -108,6 +108,33 @@ node scripts/install.mjs --dry-run  # preview only
 node scripts/install.mjs --remove   # unregister
 ```
 
+Any option from the table below can be written in the same command:
+
+```sh
+# full stacked dashboard, like the reference screenshot
+node scripts/install.mjs --sidebar-mode full --row-spacing airy --spacing normal
+
+node scripts/install.mjs --frame none --bar-style solid --cores all
+node scripts/install.mjs --interval 5 --placement bottom
+```
+
+| Flag | Values | Option |
+|---|---|---|
+| `--interval` | seconds, 1–10 | `interval` |
+| `--spacing` | `compact` \| `normal` \| `airy` | `spacing` |
+| `--row-spacing` | `compact` \| `normal` \| `airy` | `rowSpacing` |
+| `--bar-style` | `mole` \| `solid` | `barStyle` |
+| `--frame` | `rounded` \| `heavy` \| `none` | `frame` |
+| `--color-mode` | `mole` \| `theme` | `colorMode` |
+| `--sidebar-mode` | `compact` \| `full` | `sidebarMode` |
+| `--cores` | `p` \| `all` | `cores` |
+| `--placement` | `top` \| `bottom` | `placement` |
+
+Unknown flags or invalid values are ignored, and re-running the script merges
+into the options already in `cli.json` — it never resets the other settings.
+The script defaults to `sidebarMode: "compact"`; pass `--sidebar-mode full` on
+a new machine to get the stacked dashboard cards.
+
 The script backs up `cli.json`, preserves other plugin entries, and writes an
 entry like:
 

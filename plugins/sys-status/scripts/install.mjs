@@ -6,6 +6,17 @@
 //   node scripts/install.mjs --remove     # remove this checkout
 //   node scripts/install.mjs --config <path> --interval <seconds>
 //
+// Option flags (all optional, unknown values are ignored):
+//   --interval <1-10>          seconds between samples (default 2)
+//   --spacing <compact|normal|airy>
+//   --row-spacing <compact|normal|airy>
+//   --bar-style <mole|solid>
+//   --frame <rounded|heavy|none>
+//   --color-mode <mole|theme>
+//   --sidebar-mode <compact|full>
+//   --cores <p|all>
+//   --placement <top|bottom>
+//
 // Works on macOS and Windows. The plugin is CLI-only, so it belongs in
 // cli.json — never in opencode.json(c).
 
@@ -15,6 +26,7 @@ import { fileURLToPath } from "node:url"
 import {
   cliConfigPath,
   defaultCliConfig,
+  parseInstallOptions,
   patchCliConfig,
   pluginDirectoryFromModule,
   pluginUrlFor,
@@ -27,27 +39,8 @@ const dryRun = args.includes("--dry-run")
 const remove = args.includes("--remove")
 const configFlag = args.indexOf("--config")
 const intervalFlag = args.indexOf("--interval")
-const intervalValue = intervalFlag >= 0 ? Number(args[intervalFlag + 1]) : 2
-const interval = Number.isFinite(intervalValue) && intervalValue > 0 ? intervalValue : 2
-const spacingFlag = args.indexOf("--spacing")
-const spacingValue = spacingFlag >= 0 ? args[spacingFlag + 1] : undefined
-const spacing = ["compact", "normal", "airy"].includes(spacingValue) ? spacingValue : undefined
-const barStyleFlag = args.indexOf("--bar-style")
-const barStyleValue = barStyleFlag >= 0 ? args[barStyleFlag + 1] : undefined
-const barStyle = ["mole", "solid"].includes(barStyleValue) ? barStyleValue : undefined
-const frameFlag = args.indexOf("--frame")
-const frameValue = frameFlag >= 0 ? args[frameFlag + 1] : undefined
-const frame = ["rounded", "heavy", "none"].includes(frameValue) ? frameValue : undefined
-const colorModeFlag = args.indexOf("--color-mode")
-const colorModeValue = colorModeFlag >= 0 ? args[colorModeFlag + 1] : undefined
-const colorMode = ["mole", "theme"].includes(colorModeValue) ? colorModeValue : undefined
-const options = {
-  interval,
-  ...(spacing ? { spacing } : {}),
-  ...(barStyle ? { barStyle } : {}),
-  ...(frame ? { frame } : {}),
-  ...(colorMode ? { colorMode } : {}),
-}
+const intervalDefault = intervalFlag >= 0 ? Number(args[intervalFlag + 1]) : 2
+const options = parseInstallOptions(args, { defaultInterval: intervalDefault })
 
 const pluginDirectory = pluginDirectoryFromModule(import.meta.url)
 const pluginUrl = pluginUrlFor(pluginDirectory)

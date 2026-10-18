@@ -110,6 +110,10 @@ sidebar (no `mo` dependency).
   references `MOLE_BIN` / `mo status --watch` / `brew install mole`.
 - **CLI-only plugin**: register in `~/.config/opencode/cli.json` via
   `node scripts/install.mjs` (backs up `cli.json`, preserves other entries).
+  Option flags: `--interval --spacing --row-spacing --bar-style --frame
+  --color-mode --sidebar-mode --cores --placement`; invalid values are ignored
+  and existing options are merged, so a fresh install needs an explicit
+  `--sidebar-mode full` to get the stacked dashboard.
   Windows path: `%USERPROFILE%\.config\opencode\cli.json`. The repo's
   `plugins/` folder is not an OpenCode discovery path; load it explicitly.
 - **Entry**: `tui.ts` re-exports `src/entry.tsx`
