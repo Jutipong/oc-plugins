@@ -1,0 +1,9 @@
+    |   "CycleCount" = 259
+    |   "BatteryData" = {"FullChargeCapacity"=3648,"NominalChargeCapacity"=3778,"FullyCharged"=1,"DesignCapacity"=4382,"CurrentCapacity"=100}
+    |   "AdapterDetails" = {"IsWireless"=No,"AdapterVoltage"=20000,"Watts"=57}
+    |   "ExternalConnected" = Yes
+    |   "Amperage" = 0
+    |   "Voltage" = 12748
+    |   "IsCharging" = No
+    |   "FullyCharged" = Yes
+    |   "PowerTelemetryData" = {"SystemPowerIn"=10618,"SystemCurrentIn"=523,"SystemVoltageIn"=20270,"BatteryPower"=0}

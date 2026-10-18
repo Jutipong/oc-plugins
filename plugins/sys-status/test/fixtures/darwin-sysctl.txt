@@ -1,0 +1,10 @@
+hw.model: MacBookAir10,1
+machdep.cpu.brand_string: Apple M1
+hw.memsize: 17179869184
+hw.ncpu: 8
+hw.perflevel0.physicalcpu: 4
+hw.perflevel1.physicalcpu: 4
+kern.osproductversion: 27.0.1
+hw.optional.arm64: 1
+vm.loadavg: { 3.88 3.14 3.27 }
+vm.swapusage: total = 0.00M  used = 0.00M  free = 0.00M  (encrypted)

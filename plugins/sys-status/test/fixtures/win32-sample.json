@@ -1,0 +1,28 @@
+{
+  "time": "2026-10-18T11:00:00.0000000Z",
+  "memory": {
+    "totalKB": 33402856,
+    "freeKB": 12582912,
+    "availableMB": 12288,
+    "cacheBytes": 4294967296,
+    "committedBytes": 17179869184
+  },
+  "disk": { "name": "C:", "total": 1024209543168, "free": 512104271872 },
+  "io": { "readBytesPerSec": 400000, "writeBytesPerSec": 1700000 },
+  "net": {
+    "name": "Ethernet",
+    "ip": "192.0.2.20",
+    "gateway": "192.0.2.1",
+    "receivedBytes": 1024000000,
+    "sentBytes": 512000000
+  },
+  "battery": {
+    "present": true,
+    "percent": 87,
+    "status": 1,
+    "designCapacity": 60000,
+    "fullChargeCapacity": 48000,
+    "estimatedRunTime": 210
+  },
+  "pageFile": { "totalMB": 8192, "usedMB": 1024 }
+}
