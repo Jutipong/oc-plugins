@@ -90,7 +90,7 @@ export default Plugin.define({
           description: "Open the system dashboard panel",
           group: "System",
           palette: true,
-          slash: { name: "sys", aliases: ["system"] },
+          slash: { name: "sys" },
           run: () => {
             const opened = context.ui.panel.open(PANEL_NAME)
             if (!opened) context.ui.toast.show({ message: "Open a session first", variant: "info", duration: 2500 })

@@ -175,7 +175,7 @@ Make sure the sidebar is not disabled:
   `options.sidebar` is `false`). `sidebarMode: "compact"` (default) shows the
   single summary block; `sidebarMode: "full"` stacks the whole `/sys`
   dashboard into the sidebar instead.
-- **`/sys`** (alias `/system`) — opens the full dashboard panel in the current
+- **`/sys`** — opens the full dashboard panel in the current
   session. Also available from the command palette as **System status**.
 - Panel keys: `f` fullscreen · `c` cycle CPU cores (summary/all) · `r` restart
   the collector · `q` close.

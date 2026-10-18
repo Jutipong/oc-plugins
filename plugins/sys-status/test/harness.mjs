@@ -848,6 +848,16 @@ test("runtime sources never depend on the Mole CLI", () => {
 })
 
 // ---------------------------------------------------------------------------
+// slash command naming
+// ---------------------------------------------------------------------------
+
+test("the panel command is exposed only as /sys", () => {
+  const entry = fs.readFileSync(path.join(PLUGIN_DIR, "src", "entry.tsx"), "utf8")
+  includes(entry, 'slash: { name: "sys" }', "dedicated /sys slash command")
+  excludes(entry, 'aliases: ["system"]', "no /system alias")
+})
+
+// ---------------------------------------------------------------------------
 
 if (failures > 0) {
   console.error(`\n${failures} test(s) failed`)

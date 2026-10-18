@@ -141,7 +141,7 @@ sidebar and session panel (no `mo` dependency).
     dropped, not mangled (`4P+4E`, battery `· Charged` at 32 cells).
     ~23–27 lines tall; `mode: "full"` is the model option.
   - **`/sys` panel** — `session.panel` slot, opened by the
-    `sys-status.open` command (slash `/sys`, alias `/system`, palette
+    `sys-status.open` command (slash `/sys`, palette
     "System status"): full dashboard at 100 columns, header health line +
     hardware identity, then CPU/Disk and Memory/Power columns and Network.
     Keys: `f` fullscreen · `c` cycle CPU cores (summary/all) · `r` restart
