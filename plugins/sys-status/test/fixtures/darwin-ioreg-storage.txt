@@ -1,1 +1,0 @@
-"Statistics" = {"Operations (Write)"=8794703,"Latency Time (Write)"=0,"Bytes (Read)"=149394935808,"Errors (Write)"=0,"Total Time (Read)"=1364258862566,"Latency Time (Read)"=0,"Retries (Read)"=0,"Errors (Read)"=0,"Total Time (Write)"=1288609989737,"Bytes (Write)"=182376898560,"Operations (Read)"=6373080}

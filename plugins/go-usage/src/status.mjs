@@ -1,4 +1,4 @@
-// go-usage — console payload -> normalized status.
+// go-usage — console payload -> normalized meters.
 //
 // The console SPA (opencode.ai/console) renders Go meters from
 // `GET /console/api/go/status`. The payload is nullable (no subscription) and
@@ -7,7 +7,7 @@
 
 import { toNumber, toTime } from "./format.mjs"
 
-/** Console meter keys, in card order (short labels for the narrow sidebar). */
+/** Console meter keys, in prompt-footer order (H / W / M). */
 export const METER_KEYS = [
   { key: "rolling", label: "Rolling", source: "fiveHour" },
   { key: "weekly", label: "Weekly", source: "week" },
@@ -40,7 +40,7 @@ export function meterFromRaw(raw) {
   }
 }
 
-/** Full `go/status` payload -> the shape the sidebar/dialog render. */
+/** Full `go/status` payload -> the shape the footer/dialog render. */
 export function normalizeStatus(payload, now = Date.now()) {
   if (payload == null || typeof payload !== "object") {
     return {
@@ -48,8 +48,6 @@ export function normalizeStatus(payload, now = Date.now()) {
       product: null,
       plan: null,
       hasAccess: false,
-      cancelAtPeriodEnd: false,
-      useBalance: false,
       meters: [],
       fetchedAt: toNumber(now) ?? Date.now(),
     }
@@ -62,8 +60,6 @@ export function normalizeStatus(payload, now = Date.now()) {
     product,
     plan: PLAN_LABELS[product] ?? "OpenCode Go",
     hasAccess: Boolean(access),
-    cancelAtPeriodEnd: payload.cancelAtPeriodEnd === true,
-    useBalance: payload.useBalance === true,
     meters: METER_KEYS.map(({ key, label, source }) => ({
       key,
       label,

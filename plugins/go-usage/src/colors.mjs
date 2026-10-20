@@ -1,5 +1,5 @@
 // Mole's status palette (fixed colors). Used when colorMode = "mole".
-// Values are RGB triplets; kit.tsx converts them to OpenTUI RGBA.
+// Values are RGB triplets; ui/line.tsx converts them to OpenTUI RGBA.
 
 export const MOLE_PALETTE = {
   success: [165, 214, 167], // #A5D6A7

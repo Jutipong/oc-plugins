@@ -1,32 +1,33 @@
 # oc-plugins — OpenCode plugins
 
 A monorepo for my [OpenCode](https://opencode.ai) V2 plugins. Each plugin is
-self-contained in its own folder under `plugins/`: plugin code, PC-side
-senders, an offline test harness, and its own README.
+self-contained in its own folder under `plugins/`: plugin code, senders,
+an offline test harness, and its own README.
 
 | plugin | what it does | hardware |
 |---|---|---|
 | [esp-buddy](plugins/esp-buddy) | playful desk buddy: mirrors OpenCode activity onto an ESP32-S3 RLCD avatar (`working`/`thinking`/`speaking`/`happy`/`confused` + idle play pulses) | [ESP32-S3-AI](https://github.com/Jutipong/ESP32-S3-AI) |
-| [sys-status](plugins/sys-status) | Mole-style system dashboard: compact CLI sidebar block or a stacked full dashboard (CPU / memory / disk / power / network, macOS + Windows, no external tools) | any Mac or PC running OpenCode V2 |
-| [go-usage](plugins/go-usage) | OpenCode Go plan usage (rolling / weekly / monthly) in the CLI sidebar with btop-style bars, device-code login, `/go-usage` command | — |
+| [go-usage](plugins/go-usage) | OpenCode Go plan usage as a one-line `[H:92% · W:45% · M:44%]` meter in the prompt footer, device-code login, `/go-usage` command | — |
+| [system-status](plugins/system-status) | one-line `[CPU:37% · RAM:62%]` prompt-footer meter (CPU load + RAM, macOS + Windows) | any Mac or PC running OpenCode V2 |
 
 ## Install
 
-### CLI plugins (sys-status, go-usage)
+### CLI plugins (go-usage, system-status)
 
 CLI-only plugins are registered in `~/.config/opencode/cli.json` (Windows:
 `%USERPROFILE%\.config\opencode\cli.json`) — never in `opencode.json(c)`:
 
 ```sh
-cd plugins/sys-status
-node scripts/install.mjs          # add/update this checkout, backs up cli.json
-
 cd plugins/go-usage
 node scripts/install.mjs          # then run /go-usage login inside OpenCode
+
+cd plugins/system-status
+node scripts/install.mjs          # CPU/RAM footer line
 ```
 
-Then restart OpenCode: sys-status renders in the session sidebar, and
-`/go-usage` handles the Go plan usage inside a session.
+Then restart OpenCode and open a session: `/go-usage` renders the Go plan
+meters in the prompt footer, and `system-status` adds the CPU/RAM line next
+to it.
 
 ### Server plugins (esp-buddy)
 
@@ -64,7 +65,7 @@ Two shapes live here:
 - **CLI plugin** — `plugins/<name>/` with `tui.ts` (plus `src/`), a
   `package.json` exposing `"./tui"`, `README.md`, an offline
   `test/harness.mjs`, and a `scripts/install.mjs` that registers the folder in
-  `cli.json`. See `plugins/sys-status` for the reference layout.
+  `cli.json`. See `plugins/go-usage` for the reference layout.
 
 Conventions: helper files `<name>-send.*`, debug log `<name>-debug.log` under
 `~/.config/opencode/plugins/`, env vars `<NAME>_*`, and `bun run test` inside
@@ -82,15 +83,15 @@ plugins/
     esp-buddy-send.mjs  # fast sender (node + serialport, ~200ms)
     esp-buddy-send.ps1  # fallback sender (powershell, ~340ms)
     test/harness.mjs    # offline state-machine test (~51 assertions)
-  sys-status/
-    tui.ts              # CLI plugin entry (sidebar slot, full/compact dashboard)
-    src/                # collectors (darwin/win32), model, format, UI
-    scripts/install.mjs # registers the folder in cli.json
-    test/harness.mjs    # offline parser/model/install test
   go-usage/
-    tui.ts              # CLI plugin entry (sidebar slot, /go-usage command)
-    src/                # auth (device flow), service, status, model, format, UI
+    tui.ts              # CLI plugin entry (prompt footer slot, /go-usage)
+    src/                # auth (device flow), service, status, one-line model, UI
     scripts/install.mjs # registers the folder in cli.json
-    test/harness.mjs    # offline bars/model/auth/service/install test
+    test/harness.mjs    # offline H/W/M line/auth/service/install test
+  system-status/
+    tui.ts              # CLI plugin entry (prompt footer slot)
+    src/                # CPU/RAM collector, model, options, UI
+    scripts/install.mjs # registers the folder in cli.json
+    test/harness.mjs    # offline collector/parsers/model/install test
 install.ps1             # copy-mode installer for ~/.config/opencode/plugins
 ```

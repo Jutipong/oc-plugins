@@ -1,7 +1,7 @@
 // go-usage — command routing (pure, testable).
 //
-// `/go-usage` with no argument is a smart command: it starts the login flow
-// when the plugin is not connected and shows the details dialog otherwise.
+// `/go-usage` with no argument is a smart command: it starts the login
+// flow when the plugin is not connected and shows the details dialog otherwise.
 
 export function resolveCommand(input, phase) {
   const command = String(input ?? "").trim().split(/\s+/)[0].toLowerCase()

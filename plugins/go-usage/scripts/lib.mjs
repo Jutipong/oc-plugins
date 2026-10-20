@@ -76,7 +76,3 @@ export function removeCliPlugin(text, pluginUrl, { baseDir = process.cwd() } = {
 export function defaultCliConfig() {
   return '{\n  "$schema": "https://opencode.ai/v2/cli.json"\n}\n'
 }
-
-export function sidebarHidden(config) {
-  return config?.session?.sidebar === "hide"
-}

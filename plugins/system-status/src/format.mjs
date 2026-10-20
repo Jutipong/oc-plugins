@@ -1,0 +1,55 @@
+// system-status — pure formatting helpers (no I/O, no OpenTUI).
+
+/** Number / bigint / numeric string -> number, or null when unusable. */
+export function toNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  if (typeof value === "bigint") return Number(value)
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+export function clampNumber(value, fallback, min, max) {
+  const number = Number(value)
+  const base = Number.isFinite(number) && number > 0 ? number : fallback
+  return Math.min(max, Math.max(min, Math.round(base)))
+}
+
+export function displayWidth(text) {
+  return [...String(text ?? "")].length
+}
+
+/** Unicode-aware truncate with an ellipsis. */
+export function truncate(text, width) {
+  const value = text == null ? "" : String(text)
+  const cells = Math.max(0, Math.round(width))
+  const chars = [...value]
+  if (chars.length <= cells) return value
+  if (cells <= 1) return "…"
+  return `${chars.slice(0, cells - 1).join("")}…`
+}
+
+/** Usage buckets shared across the CLI plugins: >= danger (80) red, >= warning (50) amber. */
+export function toneForUsage(percent, warning = 50, danger = 80) {
+  const value = toNumber(percent)
+  if (value == null) return "muted"
+  if (value >= danger) return "danger"
+  if (value >= warning) return "warning"
+  return "success"
+}
+
+/** 0-100 -> "37%", or "—" when unknown. */
+export function formatPercent(value) {
+  const number = toNumber(value)
+  return number == null ? "—" : `${Math.round(number)}%`
+}
+
+/** Exponential moving average, used to smooth CPU load between ticks. */
+export function ema(previous, next, alpha = 0.35) {
+  const value = toNumber(next)
+  if (value == null) return previous ?? null
+  const prior = toNumber(previous)
+  return prior == null ? value : prior + alpha * (value - prior)
+}

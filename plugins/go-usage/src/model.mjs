@@ -1,30 +1,23 @@
-// go-usage — view state -> render model.
+// go-usage — view state -> the prompt-footer line.
 //
-// Pure functions that turn the plugin's view state into lines of styled
-// segments (sidebar) and plain lines (detail dialog). The JSX layer only maps
-// segment tones to theme tokens, so the exact text is fully testable without
-// OpenTUI.
+// The prompt footer is a single narrow row, so the model renders one short
+// `[H:92%|W:45%|M:44%]` line (H = rolling 5h, W = weekly, M = monthly) with
+// per-meter threshold tones and faint brackets/separators. Pure so the
+// harness can assert every state.
 
-import {
-  bar,
-  displayWidth,
-  formatAge,
-  formatClock,
-  formatMoney,
-  formatReset,
-  toneForMeter,
-  truncate,
-} from "./format.mjs"
+import { displayWidth, formatReset, toneForMeter, truncate } from "./format.mjs"
 
-const DEFAULT_WIDTH = 36
-// Border styles drawn by the model: rounded `╭─╮│╰╯`, heavy `┏━┓┃┗┛`.
-const FRAME_CHARS = {
-  rounded: { topLeft: "╭", topRight: "╮", bottomLeft: "╰", bottomRight: "╯", horizontal: "─", vertical: "│" },
-  heavy: { topLeft: "┏", topRight: "┓", bottomLeft: "┗", bottomRight: "┛", horizontal: "━", vertical: "┃" },
-}
+const PROMPT_WIDTH = 36
 
-function seg(text, tone = "base", bold = false) {
-  return { text: String(text ?? ""), tone, bold }
+/** Footer meters in display order; the labels mirror the Console cards. */
+export const STATUS_METERS = [
+  { key: "rolling", prefix: "H" },
+  { key: "weekly", prefix: "W" },
+  { key: "monthly", prefix: "M" },
+]
+
+function seg(text, tone = "base") {
+  return { text: String(text ?? ""), tone }
 }
 
 function lineWidth(line) {
@@ -44,152 +37,69 @@ function clipLine(line, width) {
   return output
 }
 
-function clipAll(lines, width) {
-  return lines.map((line) => clipLine(line, width))
-}
-
-/** Left content, right-aligned content, one `width`-cell row. */
-function alignLine(left, right, width) {
-  const leftWidth = lineWidth(left)
-  const rightWidth = lineWidth(right)
-  const pad = Math.max(1, width - leftWidth - rightWidth)
-  return clipLine([...left, seg(" ".repeat(pad)), ...right], width)
-}
-
-function headerLine(view, width) {
-  const left = [seg("◈ Go usage", "accent", true)]
-  const right = view.status?.plan ? [seg(view.status.plan, "muted")] : []
-  return alignLine(left, right, width)
-}
-
-/** sys-status-compatible bar rendering: `mole` = toned track, `solid` = blank remainder. */
-function barSegments(shape, tone, barStyle) {
-  if (barStyle === "solid") {
-    return [seg(shape.filled, tone), seg(" ".repeat(Math.max(0, shape.width - displayWidth(shape.filled))), "faint")]
-  }
-  return [seg(shape.filled, tone), seg(shape.empty, tone)]
+const PHASE_LABELS = {
+  checking: ["Go …", "muted"],
+  loading: ["Go …", "muted"],
+  disconnected: ["Go —", "warning"],
+  absent: ["Go —", "warning"],
+  error: ["Go !", "danger"],
 }
 
 /**
- * Two lines per meter: the label line carries `0h 31m · 92%` (reset countdown
- * first, percent last) and the full-width bar sits directly underneath.
+ * Join meter groups with faint ` · ` separators. Each group is a list of
+ * segments so the label (`H:`) and the value (`92%`) can carry different tones.
  */
-function meterLines(status, width, now, barStyle) {
-  const lines = []
-  for (const entry of status.meters ?? []) {
-    const meter = entry.meter
-    if (!meter) {
-      lines.push(alignLine([seg(entry.label, "base")], [seg("no data", "muted")], width))
-      continue
-    }
-    const tone = toneForMeter(meter.percent)
-    const reset = formatReset(meter.resetsAt, now)
-    const right = [...(reset ? [seg(`${reset} · `, "muted")] : []), seg(meter.badge, tone, true)]
-    lines.push(alignLine([seg(entry.label, "base")], right, width))
-    lines.push(barSegments(bar(meter.percent, width), tone, barStyle))
-  }
-  return lines
-}
-
-function footerLine(view, width) {
-  return [seg(truncate("stale · retrying automatically", width), "warning")]
-}
-
-/** Border row: `╭─ ◈ Go usage ────────── 22:31:05 ─╮` (time = last fetch). */
-function frameTop(view, total, chars) {
-  const left = [
-    seg(`${chars.topLeft}${chars.horizontal} `, "border"),
-    seg("◈ Go usage", "accent", true),
-    seg(" ", "border"),
-  ]
-  const time = view.fetchedAt ? formatClock(view.fetchedAt) : null
-  if (!time) {
-    const dashes = Math.max(1, total - lineWidth(left) - 1)
-    return clipLine([...left, seg(`${chars.horizontal.repeat(dashes)}${chars.topRight}`, "border")], total)
-  }
-  const right = [seg(" ", "border"), seg(time, view.stale ? "warning" : "muted"), seg(` ${chars.horizontal}${chars.topRight}`, "border")]
-  const dashes = Math.max(1, total - lineWidth(left) - lineWidth(right))
-  return clipLine([...left, seg(chars.horizontal.repeat(dashes), "border"), ...right], total)
-}
-
-function frameBottom(total, chars) {
-  return [seg(`${chars.bottomLeft}${chars.horizontal.repeat(Math.max(0, total - 2))}${chars.bottomRight}`, "border")]
-}
-
-/** Pad a content line to exactly `width` cells so the right border aligns. */
-function padLine(line, width) {
-  const clipped = clipLine(line, width)
-  const missing = width - lineWidth(clipped)
-  if (missing <= 0) return clipped
-  return [...clipped, seg(" ".repeat(missing), "base")]
-}
-
-function frameContentLine(line, inner, chars) {
-  return [seg(`${chars.vertical} `, "border"), ...padLine(line, inner), seg(` ${chars.vertical}`, "border")]
+function meterSegments(meters) {
+  const line = []
+  meters.forEach((parts, index) => {
+    if (index > 0) line.push(seg(" · ", "faint"))
+    line.push(...parts)
+  })
+  return line
 }
 
 /**
- * `sidebar.content` block.
+ * Bracket the meters, dropping trailing buckets whole when the row is narrow.
+ * `[` and `]` are always kept; if even one meter overflows, the inside is
+ * truncated but the closing bracket stays.
+ */
+function bracketLine(meters, budget) {
+  for (let count = meters.length; count >= 1; count -= 1) {
+    const line = [seg("[", "faint"), ...meterSegments(meters.slice(0, count)), seg("]", "faint")]
+    if (lineWidth(line) <= budget) return line
+  }
+  const inner = meterSegments(meters)
+  return [seg("[", "faint"), ...clipLine(inner, Math.max(0, budget - 2)), seg("]", "faint")]
+}
+
+/**
+ * `prompt.footer.status` line.
  *
  * view: { phase, status, stale, error, fetchedAt }
  *   phase: "checking" | "loading" | "ready" | "error" | "absent" | "disconnected"
  *
  * options:
- *   width    — total cells (default 36)
- *   frame    — "none" (default) | "rounded" | "heavy"; framed layouts put
- *              "◈ Go usage" top-left and the last fetch clock top-right
- *   header   — force the in-content header line on/off (default: off when framed)
- *   barStyle — "mole" (default: `█` fill + `░` track, both in the threshold
- *              color, like sys-status) | "solid" (fill only, faint remainder)
+ *   width — max cells (default 36)
  */
-export function buildSidebarModel(view = {}, options = {}) {
-  const total = Math.max(16, Math.round(options.width ?? DEFAULT_WIDTH))
-  const frame = options.frame === "rounded" || options.frame === "heavy" ? options.frame : "none"
-  const framed = frame !== "none"
-  const width = framed ? Math.max(12, total - 4) : total
-  const barStyle = options.barStyle === "solid" ? "solid" : "mole"
-  const now = view.now ?? Date.now()
+export function buildPromptLine(view = {}, options = {}) {
+  const width = Math.max(8, Math.round(options.width ?? PROMPT_WIDTH))
   const phase = view.phase ?? "checking"
-  const showHeader = options.header ?? !framed
-  const lines = showHeader ? [headerLine(view, width)] : []
 
   if (phase === "ready" && view.status) {
-    lines.push(...meterLines(view.status, width, now, barStyle))
-    // The footer only exists when there is something to warn about.
-    if (view.stale) lines.push(footerLine(view, width))
-  } else {
-    const body = {
-      checking: [
-        [seg("not connected", "muted")],
-        [seg(truncate("/go-usage to connect", width), "faint")],
-      ],
-      loading: [[seg("checking usage…", "muted")]],
-      disconnected: [
-        [seg("session expired", "warning")],
-        [seg(truncate("/go-usage to reconnect", width), "faint")],
-      ],
-      absent: [
-        [seg("no active Go subscription", "warning")],
-        [seg(truncate("/go-usage for details", width), "faint")],
-      ],
-      error: [
-        [seg(truncate(view.error ? `fetch failed · ${view.error}` : "fetch failed", width), "warning")],
-        [seg(truncate("retrying automatically", width), "faint")],
-      ],
-    }[phase] ?? [[seg("checking usage…", "muted")]]
-    lines.push(...body)
+    const meters = new Map((view.status.meters ?? []).map((entry) => [entry.key, entry.meter]))
+    const groups = STATUS_METERS.map(({ key, prefix }) => {
+      const meter = meters.get(key)
+      return meter
+        ? [seg(`${prefix}:`, "muted"), seg(meter.badge, toneForMeter(meter.percent))]
+        : [seg(`${prefix}:`, "muted"), seg("—", "muted")]
+    })
+    const prefix = view.stale ? [seg("! ", "warning")] : []
+    const budget = Math.max(0, width - lineWidth(prefix))
+    return [...prefix, ...bracketLine(groups, budget)]
   }
 
-  if (!framed) return { lines: clipAll(lines, width) }
-
-  const chars = FRAME_CHARS[frame]
-  return {
-    lines: [
-      frameTop(view, total, chars),
-      ...lines.map((line) => frameContentLine(line, width, chars)),
-      frameBottom(total, chars),
-    ],
-  }
+  const [text, tone] = PHASE_LABELS[phase] ?? PHASE_LABELS.checking
+  return clipLine([seg(text, tone)], width)
 }
 
 /** Plain-text body for the `/go-usage` detail dialog. */
@@ -197,19 +107,11 @@ export function buildDetailLines(view = {}) {
   const now = view.now ?? Date.now()
   const phase = view.phase ?? "checking"
   if (phase === "checking") {
-    return [
-      "Not connected to OpenCode Go.",
-      "",
-      "Run /go-usage and approve the code in your browser.",
-    ]
+    return ["Not connected to OpenCode Go.", "", "Run /go-usage and approve the code in your browser."]
   }
   if (phase === "loading") return ["Checking your OpenCode Go usage…"]
   if (phase === "disconnected") {
-    return [
-      "Your OpenCode Console session has expired.",
-      "",
-      "Run /go-usage again to reconnect.",
-    ]
+    return ["Your OpenCode Console session has expired.", "", "Run /go-usage again to reconnect."]
   }
   if (phase === "absent") {
     return [
@@ -223,7 +125,7 @@ export function buildDetailLines(view = {}) {
       "Could not fetch your OpenCode Go usage.",
       view.error ? `Last error: ${view.error}` : null,
       "",
-      "The sidebar keeps retrying automatically.",
+      "The prompt footer keeps retrying automatically.",
     ].filter((line) => line !== null)
   }
 
@@ -237,12 +139,8 @@ export function buildDetailLines(view = {}) {
       continue
     }
     const reset = formatReset(meter.resetsAt, now)
-    lines.push(`${entry.label}: ${meter.badge}`)
-    lines.push(`  ${formatMoney(meter.used)} of ${formatMoney(meter.limit)}${reset ? ` · resets in ${reset}` : ""}`)
+    lines.push(`${entry.label}: ${meter.badge}${reset ? ` · resets in ${reset}` : ""}`)
   }
-  if (status.useBalance) lines.push("", "Extra usage falls back to your Console balance after limits.")
   if (view.stale) lines.push("", "Showing the last known values — the latest refresh failed.")
-  const age = formatAge(view.fetchedAt, now)
-  lines.push("", age ? `Fetched ${age}.` : "Fetched just now.")
   return lines
 }

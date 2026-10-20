@@ -18,7 +18,6 @@ import {
   pluginDirectoryFromModule,
   pluginUrlFor,
   removeCliPlugin,
-  sidebarHidden,
 } from "./lib.mjs"
 
 const args = process.argv.slice(2)
@@ -66,9 +65,5 @@ if (remove) {
   console.log(`  package: ${pluginUrl}`)
   console.log(`  options: { interval: ${interval} }`)
   console.log(`Backup: ${configPath}.bak`)
-  const config = JSON.parse(result.text)
-  if (sidebarHidden(config)) {
-    console.log('Warning: session.sidebar is "hide" — the sidebar widget will not show until it is "auto".')
-  }
   console.log("Restart OpenCode, open a session, then run /go-usage login to connect your Console account.")
 }

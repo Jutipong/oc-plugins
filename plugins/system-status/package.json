@@ -1,0 +1,14 @@
+{
+  "name": "system-status",
+  "version": "1.0.0",
+  "private": true,
+  "description": "OpenCode V2 CLI prompt-footer meter: CPU load and RAM usage",
+  "type": "module",
+  "main": "tui.ts",
+  "exports": {
+    "./tui": "./tui.ts"
+  },
+  "scripts": {
+    "test": "node test/harness.mjs"
+  }
+}

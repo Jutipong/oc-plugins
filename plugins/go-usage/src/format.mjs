@@ -1,19 +1,4 @@
 // go-usage — pure formatting helpers (no I/O, no OpenTUI).
-//
-// Everything here is exercised directly by the offline harness. The bar is the
-// sys-status "mole" meter: whole cells only, `█` fill and a `░` track.
-
-const DOLLAR_PER_MICRO_CENT = 1e8
-const FILL = "█"
-const TRACK = "░"
-
-export function safeNumber(value, fallback = 0) {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback
-}
-
-export function hasNumber(value) {
-  return typeof value === "number" && Number.isFinite(value)
-}
 
 /** Number / bigint / numeric string -> number, or null when unusable. */
 export function toNumber(value) {
@@ -24,10 +9,6 @@ export function toNumber(value) {
     return Number.isFinite(parsed) ? parsed : null
   }
   return null
-}
-
-export function clamp(value, min, max) {
-  return Math.min(max, Math.max(min, safeNumber(value, min)))
 }
 
 /**
@@ -63,45 +44,9 @@ export function truncate(text, width) {
   return `${chars.slice(0, cells - 1).join("")}…`
 }
 
-export function padEnd(text, width) {
-  const value = String(text ?? "")
-  return value + " ".repeat(Math.max(0, width - displayWidth(value)))
-}
-
-export function padStart(text, width) {
-  const value = String(text ?? "")
-  return " ".repeat(Math.max(0, width - displayWidth(value))) + value
-}
-
-/** Fit text to exactly `width` cells (truncate then pad). */
-export function fit(text, width) {
-  return padEnd(truncate(text, width), width)
-}
-
-/**
- * btop / sys-status "mole" meter bar: whole `█` cells for the filled part
- * (floor, no partial edge) and a `░` track. Always renders exactly `width`
- * cells; the caller decides the colors.
- */
-export function bar(percentValue, width = 36) {
-  const cells = Math.max(1, Math.round(width))
-  const value = clamp(percentValue, 0, 100)
-  const filled = value <= 0 ? 0 : Math.min(cells, Math.floor((value / 100) * cells))
-  return {
-    filled: FILL.repeat(filled),
-    empty: TRACK.repeat(cells - filled),
-    text: `${FILL.repeat(filled)}${TRACK.repeat(cells - filled)}`,
-    width: cells,
-  }
-}
-
-export function barText(percentValue, width = 36) {
-  return bar(percentValue, width).text
-}
-
-/** Usage buckets shared with sys-status: >= 80 danger, >= 50 warning, else success. */
+/** Usage buckets shared across the CLI plugins: >= 80 danger, >= 50 warning, else success. */
 export function toneForMeter(percentValue) {
-  const value = safeNumber(percentValue, 0)
+  const value = toNumber(percentValue) ?? 0
   if (value >= 80) return "danger"
   if (value >= 50) return "warning"
   return "success"
@@ -114,40 +59,9 @@ export function toneForMeter(percentValue) {
 export function formatReset(resetsAt, now = Date.now()) {
   const target = toTime(resetsAt)
   if (target == null) return null
-  const current = hasNumber(now) ? now : Date.now()
+  const current = toNumber(now) ?? Date.now()
   const minutes = Math.max(0, Math.ceil((target - current) / 60000))
   const hours = Math.floor(minutes / 60)
   if (hours >= 24) return `${Math.floor(hours / 24)}d ${hours % 24}h`
   return `${hours}h ${minutes % 60}m`
-}
-
-/** microCents (1e8 per dollar) -> "$12.00". */
-export function formatMoney(microCents, fallback = "--") {
-  const value = toNumber(microCents)
-  if (value == null || value < 0) return fallback
-  return `$${(value / DOLLAR_PER_MICRO_CENT).toFixed(2)}`
-}
-
-/** Fetched-at timestamp -> "just now" / "12s ago" / "3m ago" / "2h ago". */
-export function formatAge(fetchedAt, now = Date.now()) {
-  const at = toNumber(fetchedAt)
-  if (at == null || at <= 0) return null
-  const current = hasNumber(now) ? now : Date.now()
-  const seconds = Math.max(0, Math.floor((current - at) / 1000))
-  if (seconds < 5) return "just now"
-  if (seconds < 60) return `${seconds}s ago`
-  const minutes = Math.floor(seconds / 60)
-  if (minutes < 60) return `${minutes}m ago`
-  const hours = Math.floor(minutes / 60)
-  if (hours < 48) return `${hours}h ago`
-  return `${Math.floor(hours / 24)}d ago`
-}
-
-/** Fetched-at timestamp -> local 24h clock "22:31:05", or null. */
-export function formatClock(fetchedAt) {
-  const at = toNumber(fetchedAt)
-  if (at == null || at <= 0) return null
-  const date = new Date(at)
-  const pad = (value) => String(value).padStart(2, "0")
-  return `${pad(date.getHours())}:${pad(date.getMinutes())}:${pad(date.getSeconds())}`
 }

@@ -1,4 +1,4 @@
-// go-usage — tiny observable so the sidebar reacts to entry-owned state
+// go-usage — tiny observable so the footer reacts to entry-owned state
 // without depending on storage update semantics.
 
 export function createObservable(initial) {

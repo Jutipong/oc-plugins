@@ -1,10 +1,10 @@
 // go-usage — OpenCode Console account device login.
 //
-// The plugin authenticates exactly like the OpenCode CLI's "OpenCode Console
-// account" integration: an OAuth 2.0 device flow against the Console
-// (client_id "opencode-cli"), then Bearer requests to the Console API.
-// Request/response handling is pure so the harness can drive it with a mock
-// fetch. API keys (sk-... from auth.json) do NOT work on the Console API.
+// Mirrors the OpenCode CLI's "OpenCode Console account" integration: an OAuth
+// 2.0 device flow against the Console (client_id "opencode-cli"), then Bearer
+// requests to the Console API. Request/response handling is pure so the
+// harness can drive it with a mock fetch. API keys (sk-... from auth.json) do
+// NOT work on the Console API.
 
 import { toNumber } from "./format.mjs"
 

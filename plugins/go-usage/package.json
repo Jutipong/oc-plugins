@@ -2,7 +2,7 @@
   "name": "go-usage",
   "version": "1.0.0",
   "private": true,
-  "description": "OpenCode Go usage (rolling / weekly / monthly meters) in the OpenCode V2 CLI sidebar, with btop-style bars",
+  "description": "OpenCode Go usage as a one-line H/W/M meter in the OpenCode V2 CLI prompt footer",
   "type": "module",
   "main": "tui.ts",
   "exports": {

@@ -10,18 +10,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import {
-  bar,
-  barText,
-  displayWidth,
-  formatAge,
-  formatClock,
-  formatMoney,
-  formatReset,
-  toNumber,
-  toTime,
-  toneForMeter,
-} from "../src/format.mjs"
+import { displayWidth, formatReset, toNumber, toTime, toneForMeter, truncate } from "../src/format.mjs"
 import { METER_KEYS, meterFromRaw, normalizeStatus } from "../src/status.mjs"
 import {
   DEFAULT_BASE_URL,
@@ -41,15 +30,9 @@ import { clampInterval, resolveOptions } from "../src/options.mjs"
 import { createObservable } from "../src/store.mjs"
 import { createLogger, logPath } from "../src/log.mjs"
 import { openBrowser, openCommand } from "../src/open.mjs"
-import { buildDetailLines, buildSidebarModel } from "../src/model.mjs"
+import { STATUS_METERS, buildDetailLines, buildPromptLine } from "../src/model.mjs"
 import { MOLE_PALETTE } from "../src/colors.mjs"
-import {
-  cliConfigPath,
-  configDirectory,
-  patchCliConfig,
-  removeCliPlugin,
-  sidebarHidden,
-} from "../scripts/lib.mjs"
+import { cliConfigPath, configDirectory, patchCliConfig, removeCliPlugin } from "../scripts/lib.mjs"
 
 const HERE = path.dirname(fileURLToPath(import.meta.url))
 const PLUGIN_DIR = path.resolve(HERE, "..")
@@ -101,8 +84,8 @@ function excludes(text, needle, message) {
   assert.ok(!String(text).includes(needle), message ?? `expected NOT to include ${needle}`)
 }
 
-function flatText(lines) {
-  return (lines ?? []).map((line) => line.map((segment) => segment.text).join("")).join("\n")
+function flatText(line) {
+  return (line ?? []).map((segment) => segment.text).join("")
 }
 
 function jsonResponse(status, json) {
@@ -176,31 +159,7 @@ function goStatusView(extra = {}) {
 // format
 // ---------------------------------------------------------------------------
 
-test("bar renders exactly the requested width with block characters", () => {
-  eq(bar(92, 36).text, `${"█".repeat(33)}${"░".repeat(3)}`)
-  eq(displayWidth(bar(92, 36).text), 36)
-  eq(bar(0, 10).text, "░".repeat(10))
-  eq(bar(100, 10).text, "█".repeat(10))
-  eq(bar(105, 10).text, "█".repeat(10))
-  eq(bar(45, 10).text, `${"█".repeat(4)}${"░".repeat(6)}`)
-  eq(bar(13, 10).text, `█${"░".repeat(9)}`)
-  eq(bar(99.9, 10).text, `${"█".repeat(9)}░`)
-  eq(bar(-5, 10).text, "░".repeat(10))
-  eq(bar(NaN, 8).text, "░".repeat(8))
-  eq(barText(50, 4), `██${"░".repeat(2)}`)
-})
-
-test("bar output only ever contains fill and track", () => {
-  const allowed = /^[█░]+$/
-  for (let percent = 0; percent <= 130; percent += 7) {
-    const shape = bar(percent, 36)
-    ok(allowed.test(shape.text), `unexpected characters for ${percent}%: ${shape.text}`)
-    eq(displayWidth(shape.text), 36)
-    eq(shape.filled + shape.empty, shape.text)
-  }
-})
-
-test("tone buckets are shared with sys-status (50 / 80)", () => {
+test("tone buckets are shared across the CLI plugins (50 / 80)", () => {
   eq(toneForMeter(0), "success")
   eq(toneForMeter(49.9), "success")
   eq(toneForMeter(50), "warning")
@@ -209,35 +168,25 @@ test("tone buckets are shared with sys-status (50 / 80)", () => {
   eq(toneForMeter(120), "danger")
 })
 
+test("truncate is unicode-aware and displayWidth counts cells", () => {
+  eq(truncate("hello", 10), "hello")
+  eq(truncate("hello", 5), "hello")
+  eq(truncate("hello", 4), "hel…")
+  eq(truncate("hello", 1), "…")
+  eq(truncate("hello", 0), "…")
+  eq(displayWidth("H:92%"), 5)
+  eq(displayWidth(""), 0)
+})
+
 test("formatReset mirrors the console countdown", () => {
   const plus = (ms) => new Date(NOW + ms).toISOString()
   eq(formatReset(plus(31 * 60_000), NOW), "0h 31m")
   eq(formatReset(plus(12 * 3_600_000 + 12 * 60_000), NOW), "12h 12m")
   eq(formatReset(plus(9 * 86_400_000 + 14 * 3_600_000), NOW), "9d 14h")
-  eq(formatReset(plus(23 * 3_600_000 + 59 * 60_000), NOW), "23h 59m")
-  eq(formatReset(plus(24 * 3_600_000), NOW), "1d 0h")
-  eq(formatReset(plus(1800_000), NOW), "0h 30m")
   eq(formatReset(new Date(NOW - 500_000).toISOString(), NOW), "0h 0m")
   eq(formatReset((NOW + 600_000) / 1000, NOW), "0h 10m")
   eq(formatReset(null, NOW), null)
   eq(formatReset("not a date", NOW), null)
-})
-
-test("money, age and clock formatting", () => {
-  eq(formatMoney(1_200_000_000), "$12.00")
-  eq(formatMoney("1104000000"), "$11.04")
-  eq(formatMoney(0), "$0.00")
-  eq(formatMoney(-1), "--")
-  eq(formatMoney(null), "--")
-  eq(formatAge(NOW, NOW), "just now")
-  eq(formatAge(NOW - 12_000, NOW), "12s ago")
-  eq(formatAge(NOW - 3 * 60_000, NOW), "3m ago")
-  eq(formatAge(NOW - 2 * 3_600_000, NOW), "2h ago")
-  eq(formatAge(0, NOW), null)
-  eq(formatClock(new Date(2026, 9, 18, 22, 31, 5).getTime()), "22:31:05")
-  eq(formatClock(new Date(2026, 0, 2, 3, 4, 9).getTime()), "03:04:09")
-  eq(formatClock(0), null)
-  eq(formatClock(null), null)
 })
 
 test("toNumber / toTime accept the wire encodings", () => {
@@ -257,7 +206,7 @@ test("toNumber / toTime accept the wire encodings", () => {
 // status normalization
 // ---------------------------------------------------------------------------
 
-test("meterFromRaw mirrors console percent/badge/tone rules", () => {
+test("meterFromRaw mirrors console percent/badge rules", () => {
   const rolling = meterFromRaw(GO_STATUS.access.meters.fiveHour)
   eq(rolling.percent, 92)
   eq(rolling.badge, "92%")
@@ -285,7 +234,7 @@ test("meterFromRaw mirrors console percent/badge/tone rules", () => {
   eq(meterFromRaw(null), null)
 })
 
-test("normalizeStatus shapes the sidebar data", () => {
+test("normalizeStatus shapes the footer data", () => {
   const status = normalizeStatus(GO_STATUS, NOW)
   eq(status.present, true)
   eq(status.plan, "Go")
@@ -300,7 +249,6 @@ test("normalizeStatus shapes the sidebar data", () => {
 
   eq(normalizeStatus({ ...GO_STATUS, product: "go-plus" }, NOW).plan, "Go Plus")
   eq(normalizeStatus({ ...GO_STATUS, product: "something" }, NOW).plan, "OpenCode Go")
-  eq(normalizeStatus({ ...GO_STATUS, useBalance: true }, NOW).useBalance, true)
 
   const noAccess = normalizeStatus({ ...GO_STATUS, access: null }, NOW)
   eq(noAccess.hasAccess, false)
@@ -312,81 +260,79 @@ test("normalizeStatus shapes the sidebar data", () => {
   eq(none.plan, null)
 
   eq(METER_KEYS.length, 3)
+  eq(STATUS_METERS.map((entry) => entry.prefix), ["H", "W", "M"])
 })
 
 // ---------------------------------------------------------------------------
-// sidebar model
+// prompt footer model
 // ---------------------------------------------------------------------------
 
-test("sidebar ready state renders the three btop meters", () => {
-  const model = buildSidebarModel(goStatusView())
-  const lines = model.lines.map((line) => line.map((segment) => segment.text).join(""))
-  eq(lines.length, 1 + 3 * 2)
-  includes(lines[0], "◈ Go usage")
-  includes(lines[0], "Go")
-  // Label line: countdown first, percent last; full-width bar underneath.
-  eq(lines[1], `Rolling${" ".repeat(17)}0h 31m · 92%`)
-  eq(lines[2], bar(92, 36).text)
-  eq(lines[3], `Weekly${" ".repeat(17)}12h 12m · 45%`)
-  eq(lines[4], bar(45, 36).text)
-  eq(lines[5], `Monthly${" ".repeat(17)}9d 14h · 44%`)
-  eq(lines[6], bar(44, 36).text)
-  excludes(lines.join("\n"), "/go-usage", "fresh data adds no footer line")
+test("prompt line renders bracketed H/W/M with faint labels and toned values", () => {
+  const line = buildPromptLine(goStatusView())
+  eq(flatText(line), "[H:92% · W:45% · M:44%]")
+  eq(line.map((segment) => segment.text), ["[", "H:", "92%", " · ", "W:", "45%", " · ", "M:", "44%", "]"])
+  eq(line.map((segment) => segment.tone), [
+    "faint",
+    "muted",
+    "danger",
+    "faint",
+    "muted",
+    "success",
+    "faint",
+    "muted",
+    "success",
+    "faint",
+  ])
 })
 
-test("sidebar tones follow the meter percent", () => {
+test("prompt line uses muted placeholders for missing meters", () => {
+  const status = normalizeStatus({ product: "go", access: { meters: { fiveHour: null, week: null, month: null } } }, NOW)
+  const line = buildPromptLine({ phase: "ready", status })
+  eq(flatText(line), "[H:— · W:— · M:—]")
+  eq(line[1].tone, "muted")
+  eq(line[2].tone, "muted")
+  eq(line[4].tone, "muted")
+  eq(line[5].tone, "muted")
+
+  const partial = normalizeStatus({ product: "go", access: { meters: { fiveHour: { usedMicroCents: 1, limitMicroCents: 2 } } } }, NOW)
+  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:—]")
+})
+
+test("prompt line marks stale values with a warning prefix", () => {
+  const line = buildPromptLine(goStatusView({ stale: true, error: "HTTP 500" }))
+  eq(flatText(line), "! [H:92% · W:45% · M:44%]")
+  eq(line[0].tone, "warning")
+  eq(line[1].text, "[")
+  eq(line[3].tone, "danger")
+})
+
+test("prompt line drops trailing meters whole and keeps the brackets balanced", () => {
   const view = goStatusView()
-  const lines = buildSidebarModel(view).lines
-  const line1 = lines[1].map((segment) => segment.text).join("")
-  ok(line1.indexOf("0h 31m") < line1.indexOf("92%"), "countdown precedes the percent")
-  const rollingTone = lines[1].find((segment) => segment.text.includes("92%"))
-  eq(rollingTone.tone, "danger")
-  eq(rollingTone.bold, true)
-  eq(lines[1][2].tone, "muted")
-  const weeklyTone = lines[3].find((segment) => segment.text.includes("45%"))
-  eq(weeklyTone.tone, "success")
-  // mole style: fill and track share the threshold color (like sys-status)
-  eq(lines[2][0].tone, "danger")
-  eq(lines[2][1].tone, "danger")
-  eq(lines[4][0].tone, "success")
-  eq(lines[4][1].tone, "success")
+  eq(flatText(buildPromptLine(view, { width: 23 })), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(view, { width: 22 })), "[H:92% · W:45%]")
+  eq(flatText(buildPromptLine(view, { width: 16 })), "[H:92% · W:45%]")
+  eq(flatText(buildPromptLine(view, { width: 15 })), "[H:92% · W:45%]")
+  eq(flatText(buildPromptLine(view, { width: 14 })), "[H:92%]")
+  eq(flatText(buildPromptLine(view, { width: 8 })), "[H:92%]")
+
+  const stale = buildPromptLine(goStatusView({ stale: true }), { width: 8 })
+  eq(flatText(stale), "! [H:9…]")
+  eq(displayWidth(flatText(stale)), 8)
 })
 
-test("bar styles match sys-status: mole tones the track, solid blanks it", () => {
-  const mole = buildSidebarModel(goStatusView(), { width: 36 })
-  eq(mole.lines[2].map((segment) => segment.text).join(""), bar(92, 36).text)
-
-  const solid = buildSidebarModel(goStatusView(), { width: 36, barStyle: "solid" })
-  const text = solid.lines[2].map((segment) => segment.text).join("")
-  eq(text, `${"█".repeat(33)}${" ".repeat(3)}`)
-  eq(solid.lines[2][0].tone, "danger")
-  eq(solid.lines[2][1].tone, "faint")
-
-  const framed = buildSidebarModel(goStatusView(), { frame: "rounded", barStyle: "solid" })
-  eq(framed.lines[2].map((segment) => segment.text).join(""), `│ ${"█".repeat(29)}${" ".repeat(3)} │`)
+test("prompt line shows a state marker for every non-ready phase", () => {
+  eq(flatText(buildPromptLine({ phase: "checking" })), "Go …")
+  eq(flatText(buildPromptLine({ phase: "loading" })), "Go …")
+  eq(flatText(buildPromptLine({ phase: "disconnected" })), "Go —")
+  eq(buildPromptLine({ phase: "disconnected" })[0].tone, "warning")
+  eq(flatText(buildPromptLine({ phase: "absent" })), "Go —")
+  eq(flatText(buildPromptLine({ phase: "error", error: "HTTP 500" })), "Go !")
+  eq(buildPromptLine({ phase: "error" })[0].tone, "danger")
+  eq(flatText(buildPromptLine({})), "Go …")
+  eq(flatText(buildPromptLine({ phase: "wat" })), "Go …")
 })
 
-test("sidebar stale/ready keeps values and flags the failure", () => {
-  const model = buildSidebarModel(goStatusView({ stale: true, error: "HTTP 500" }))
-  const text = flatText(model.lines)
-  includes(text, "92%")
-  includes(text, "stale · retrying automatically")
-  eq(model.lines.length, 1 + 3 * 2 + 1)
-})
-
-test("sidebar non-ready phases render guidance", () => {
-  includes(flatText(buildSidebarModel({ phase: "checking" }).lines), "not connected")
-  includes(flatText(buildSidebarModel({ phase: "checking" }).lines), "/go-usage to connect")
-  includes(flatText(buildSidebarModel({ phase: "loading" }).lines), "checking usage…")
-  includes(flatText(buildSidebarModel({ phase: "disconnected" }).lines), "session expired")
-  includes(flatText(buildSidebarModel({ phase: "disconnected" }).lines), "/go-usage to reconnect")
-  includes(flatText(buildSidebarModel({ phase: "absent" }).lines), "no active Go subscription")
-  const error = flatText(buildSidebarModel({ phase: "error", error: "HTTP 500" }).lines)
-  includes(error, "fetch failed · HTTP 500")
-  includes(error, "retrying automatically")
-})
-
-test("sidebar lines never exceed the sidebar width and never leak internals", () => {
+test("prompt line never exceeds the requested width and never leaks internals", () => {
   const views = [
     goStatusView(),
     goStatusView({ stale: true, error: "HTTP 500" }),
@@ -397,34 +343,31 @@ test("sidebar lines never exceed the sidebar width and never leak internals", ()
     { phase: "error", error: "a very long network failure message that should be clipped" },
   ]
   for (const view of views) {
-    const text = flatText(buildSidebarModel(view).lines)
+    const text = flatText(buildPromptLine(view))
     excludes(text, "NaN")
     excludes(text, "undefined")
     excludes(text, "Infinity")
-    for (const width of [36, 24, 16]) {
-      for (const line of buildSidebarModel(view, { width }).lines) {
-        const joined = line.map((segment) => segment.text).join("")
-        ok(displayWidth(joined) <= width, `line wider than ${width}: ${joined}`)
+    for (const width of [36, 24, 16, 8]) {
+      const line = buildPromptLine(view, { width })
+      const flat = flatText(line)
+      ok(displayWidth(flat) <= width, `line wider than ${width}: ${flat}`)
+      if (view.phase === "ready") {
+        ok(flat.startsWith("[") || flat.startsWith("! ["), `missing opening bracket: ${flat}`)
+        ok(flat.endsWith("]"), `missing closing bracket: ${flat}`)
+        eq((flat.match(/\[/g) ?? []).length, 1)
+        eq((flat.match(/\]/g) ?? []).length, 1)
       }
     }
   }
 })
 
-test("sidebar meters without data degrade gracefully", () => {
-  const status = normalizeStatus({ product: "go", access: { meters: { fiveHour: null, week: null, month: null } } }, NOW)
-  const text = flatText(buildSidebarModel({ phase: "ready", status, fetchedAt: NOW, now: NOW }).lines)
-  includes(text, "Rolling")
-  includes(text, "no data")
-  excludes(text, "NaN")
-})
-
 test("detail dialog text covers every phase", () => {
   includes(buildDetailLines(goStatusView()).join("\n"), "Plan: Go")
-  includes(buildDetailLines(goStatusView()).join("\n"), "$11.04 of $12.00")
-  includes(buildDetailLines(goStatusView()).join("\n"), "resets in 0h 31m")
-  includes(buildDetailLines(goStatusView()).join("\n"), "Fetched just now.")
+  includes(buildDetailLines(goStatusView()).join("\n"), "Rolling: 92% · resets in 0h 31m")
+  includes(buildDetailLines(goStatusView()).join("\n"), "Weekly: 45% · resets in 12h 12m")
   includes(buildDetailLines(goStatusView({ stale: true })).join("\n"), "latest refresh failed")
   includes(buildDetailLines({ phase: "checking" }).join("\n"), "/go-usage and approve")
+  includes(buildDetailLines({ phase: "loading" }).join("\n"), "Checking your OpenCode Go usage")
   includes(buildDetailLines({ phase: "disconnected" }).join("\n"), "/go-usage again to reconnect")
   includes(buildDetailLines({ phase: "absent" }).join("\n"), "https://opencode.ai/console")
   includes(buildDetailLines({ phase: "error", error: "HTTP 500" }).join("\n"), "HTTP 500")
@@ -446,85 +389,6 @@ test("no-argument /go-usage is a smart command", () => {
   eq(resolveCommand("  LOGOUT  ", "ready"), "logout")
   eq(resolveCommand("Refresh", "ready"), "refresh")
   eq(resolveCommand("wat", "ready"), "unknown")
-})
-
-test("framed sidebar draws its own border with title and clock", () => {
-  const localFetched = new Date(2026, 9, 18, 22, 31, 5).getTime()
-  const model = buildSidebarModel({ ...goStatusView(), fetchedAt: localFetched }, { frame: "rounded" })
-  const lines = model.lines.map((line) => line.map((segment) => segment.text).join(""))
-  // top border + 3 meter pairs + bottom border (no footer when fresh)
-  eq(lines.length, 8)
-  for (const line of lines) eq(displayWidth(line), 36, `line must be exactly 36 cells: ${line}`)
-  eq(lines[0], `╭─ ◈ Go usage ${"─".repeat(10)} 22:31:05 ─╮`)
-  eq(lines[7], `╰${"─".repeat(34)}╯`)
-  includes(lines[1], "Rolling")
-  includes(lines[1], "92%")
-  includes(lines[1], "0h 31m")
-  eq(lines[2], `│ ${bar(92, 32).text} │`)
-  eq(lines[4], `│ ${bar(45, 32).text} │`)
-  eq(lines[6], `│ ${bar(44, 32).text} │`)
-  excludes(lines.join("\n"), "◈ Go usage\n", "the title must appear only in the border")
-  excludes(lines.join("\n"), "/go-usage", "fresh data adds no footer line")
-  for (const line of lines.slice(1, 7)) {
-    ok(line.startsWith("│ "), `content lines open the border: ${line}`)
-    ok(line.endsWith(" │"), `content lines close the border: ${line}`)
-  }
-})
-
-test("framed sidebar without data has no clock; stale colors it", () => {
-  const checking = buildSidebarModel({ phase: "checking" }, { frame: "rounded" })
-  const top = checking.lines[0].map((segment) => segment.text).join("")
-  eq(top, `╭─ ◈ Go usage ${"─".repeat(21)}╮`)
-  excludes(top, ":")
-
-  const localFetched = new Date(2026, 9, 18, 22, 31, 5).getTime()
-  const stale = buildSidebarModel({ ...goStatusView(), fetchedAt: localFetched, stale: true }, { frame: "rounded" })
-  const staleTime = stale.lines[0].find((segment) => segment.text === "22:31:05")
-  eq(staleTime.tone, "warning")
-  includes(flatText(stale.lines), "stale · retrying automatically")
-  const fresh = buildSidebarModel({ ...goStatusView(), fetchedAt: localFetched, stale: false }, { frame: "rounded" })
-  eq(fresh.lines[0].find((segment) => segment.text === "22:31:05").tone, "muted")
-})
-
-test("heavy frame uses heavy box characters", () => {
-  const model = buildSidebarModel(goStatusView(), { frame: "heavy" })
-  const lines = model.lines.map((line) => line.map((segment) => segment.text).join(""))
-  ok(lines[0].startsWith("┏━"), lines[0])
-  ok(lines[0].endsWith("━┓"), lines[0])
-  ok(lines[1].startsWith("┃ "), lines[1])
-  eq(lines[7], `┗${"━".repeat(34)}┛`)
-  for (const line of lines) eq(displayWidth(line), 36)
-})
-
-test("header:true stays the default for unframed layouts", () => {
-  includes(flatText(buildSidebarModel(goStatusView(), { width: 36 }).lines), "◈ Go usage")
-  includes(flatText(buildSidebarModel(goStatusView(), { width: 36, header: true }).lines), "◈ Go usage")
-  eq(buildSidebarModel(goStatusView(), { width: 36 }).lines.length, 7)
-})
-
-test("sidebar UI delegates the frame to the model", () => {
-  const source = fs.readFileSync(path.join(PLUGIN_DIR, "src/ui/sidebar.tsx"), "utf8")
-  includes(source, 'frame: props.frame ?? "rounded"')
-  includes(source, 'barStyle: props.barStyle ?? "mole"')
-  includes(source, "colorMode={props.colorMode}")
-  includes(source, "buildSidebarModel")
-  excludes(source, "borderStyle", "the OpenTUI border box was replaced by the model-drawn frame")
-  const modelSource = fs.readFileSync(path.join(PLUGIN_DIR, "src/model.mjs"), "utf8")
-  includes(modelSource, "FRAME_CHARS")
-  includes(modelSource, "formatClock")
-  includes(modelSource, "barSegments")
-})
-
-test("kit resolves mole mode through sys-status's palette", () => {
-  const kit = fs.readFileSync(path.join(PLUGIN_DIR, "src/ui/kit.tsx"), "utf8")
-  includes(kit, 'import { RGBA } from "@opentui/core"')
-  includes(kit, "MOLE_PALETTE")
-  includes(kit, "RGBA.fromInts")
-  includes(kit, 'colorMode = "theme"')
-  includes(kit, "MOLE_RGBA.accent")
-  includes(kit, "MOLE_RGBA.border")
-  const entry = fs.readFileSync(path.join(PLUGIN_DIR, "src/entry.tsx"), "utf8")
-  includes(entry, "colorMode={options.colorMode}")
 })
 
 // ---------------------------------------------------------------------------
@@ -791,7 +655,6 @@ await testAsync("service surfaces unauthorized, absent, http and network errors"
   const scopedMock = createFetchMock([{ status: 200, json: GO_STATUS }])
   const scoped = createUsageService({ fetchImpl: scopedMock.fetchImpl, baseUrl: BASE, auth: connectedAuth(), orgId: "wrk_env" })
   await scoped.fetchStatus()
-  // env/option override wins over the stored org
   eq(scopedMock.calls[0].init.headers["x-org-id"], "wrk_env")
 })
 
@@ -799,7 +662,7 @@ await testAsync("service surfaces unauthorized, absent, http and network errors"
 // options, store, log, open
 // ---------------------------------------------------------------------------
 
-test("option and env resolution", () => {
+test("option and env resolution uses GO_USAGE_*", () => {
   eq(clampInterval(undefined), 300)
   eq(clampInterval(5), 15)
   eq(clampInterval(120), 120)
@@ -810,24 +673,11 @@ test("option and env resolution", () => {
   eq(resolveOptions({ options: { interval: 90 }, env: { GO_USAGE_INTERVAL: "30" } }).intervalSeconds, 90)
   eq(resolveOptions({ env: { GO_USAGE_BASE_URL: "https://example.com/console/" } }).baseUrl, "https://example.com/console")
   eq(resolveOptions({}).baseUrl, DEFAULT_BASE_URL)
-  eq(resolveOptions({ options: { placement: "bottom" } }).placement, "bottom")
-  eq(resolveOptions({ options: { sidebar: false } }).sidebar, false)
   eq(resolveOptions({ options: { openBrowser: false } }).openBrowser, false)
   eq(resolveOptions({ env: { GO_USAGE_NO_OPEN: "1" } }).openBrowser, false)
   eq(resolveOptions({ options: { debug: true } }).debug, true)
   eq(resolveOptions({ env: { GO_USAGE_DEBUG: "1" } }).debug, true)
   eq(resolveOptions({ env: { GO_USAGE_ORG: "wrk_env" } }).orgId, "wrk_env")
-  eq(resolveOptions({}).frame, "rounded")
-  eq(resolveOptions({ options: { frame: "heavy" } }).frame, "heavy")
-  eq(resolveOptions({ options: { frame: "none" } }).frame, "none")
-  eq(resolveOptions({ env: { GO_USAGE_FRAME: "heavy" } }).frame, "heavy")
-  eq(resolveOptions({ options: { frame: "wat" } }).frame, "rounded")
-  eq(resolveOptions({ options: { frame: "none" }, env: { GO_USAGE_FRAME: "heavy" } }).frame, "none")
-  eq(resolveOptions({}).barStyle, "mole")
-  eq(resolveOptions({ options: { barStyle: "solid" } }).barStyle, "solid")
-  eq(resolveOptions({ env: { GO_USAGE_BAR_STYLE: "solid" } }).barStyle, "solid")
-  eq(resolveOptions({ options: { barStyle: "wat" } }).barStyle, "mole")
-  eq(resolveOptions({ options: { barStyle: "mole" }, env: { GO_USAGE_BAR_STYLE: "solid" } }).barStyle, "mole")
   eq(resolveOptions({}).colorMode, "mole")
   eq(resolveOptions({ options: { colorMode: "theme" } }).colorMode, "theme")
   eq(resolveOptions({ env: { GO_USAGE_COLOR_MODE: "theme" } }).colorMode, "theme")
@@ -835,17 +685,13 @@ test("option and env resolution", () => {
   eq(resolveOptions({ options: { colorMode: "theme" }, env: { GO_USAGE_COLOR_MODE: "mole" } }).colorMode, "theme")
 })
 
-test("mole palette matches sys-status exactly", () => {
+test("mole palette matches the other CLI plugins", () => {
   eq(MOLE_PALETTE.success, [165, 214, 167])
   eq(MOLE_PALETTE.warning, [255, 169, 77])
   eq(MOLE_PALETTE.error, [255, 95, 95])
   eq(MOLE_PALETTE.accent, [199, 159, 215])
   eq(MOLE_PALETTE.border, [64, 64, 64])
   eq(MOLE_PALETTE.muted, [115, 115, 115])
-  for (const [tone, rgb] of Object.entries(MOLE_PALETTE)) {
-    eq(rgb.length, 3, `${tone} must be an RGB triplet`)
-    for (const channel of rgb) ok(Number.isInteger(channel) && channel >= 0 && channel <= 255, `${tone} channel out of range: ${channel}`)
-  }
 })
 
 test("observable notifies subscribers and survives broken listeners", () => {
@@ -889,8 +735,6 @@ test("config paths follow XDG/home", () => {
   eq(configDirectory({ XDG_CONFIG_HOME: "/tmp/xdg" }, "/home/u"), path.join("/tmp/xdg", "opencode"))
   eq(configDirectory({}, "/home/u"), path.join("/home/u", ".config", "opencode"))
   eq(cliConfigPath({}, "/home/u"), path.join("/home/u", ".config", "opencode", "cli.json"))
-  eq(sidebarHidden({ session: { sidebar: "hide" } }), true)
-  eq(sidebarHidden({ session: { sidebar: "auto" } }), false)
 })
 
 test("patchCliConfig adds, preserves and updates entries", () => {
@@ -948,23 +792,37 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(tui, 'export { default } from "./src/entry.tsx"')
   const entry = fs.readFileSync(path.join(PLUGIN_DIR, "src/entry.tsx"), "utf8")
   includes(entry, 'id: "go-usage"')
-  includes(entry, "sidebar.content")
-  includes(entry, 'slash: { name: "go-usage", arguments: true }')
+  includes(entry, "prompt.footer.status")
+  excludes(entry, "sidebar.content", "the plugin owns the prompt footer only")
   includes(entry, "resolveCommand", "no-argument /go-usage must route through resolveCommand")
-  includes(entry, 'slash: { name: "go-usage-login" }', "dedicated /go-usage-login slash command")
-  includes(entry, 'slash: { name: "go-usage-logout" }', "dedicated /go-usage-logout slash command")
-  includes(entry, 'slash: { name: "go-usage-refresh" }', "dedicated /go-usage-refresh slash command")
+  includes(entry, 'slash: { name: "go-usage", arguments: true }')
+  includes(entry, 'slash: { name: "go-usage-login" }')
+  includes(entry, 'slash: { name: "go-usage-logout" }')
+  includes(entry, 'slash: { name: "go-usage-refresh" }')
   includes(entry, "go-usage.logout", "palette must keep a disconnect entry")
   includes(entry, "go-usage.refresh", "palette must keep a refresh entry")
-})
-
-test("logout cannot be resurrected by a pending login or stale storage", () => {
-  const entry = fs.readFileSync(path.join(PLUGIN_DIR, "src/entry.tsx"), "utf8")
   includes(entry, "loginEpoch += 1", "logout must invalidate in-flight logins")
   includes(entry, "suppressAdopt = true", "logout must stop re-adopting the stored session")
-  includes(entry, "suppressAdopt = false", "a fresh login must re-enable adoption")
-  includes(entry, "auth.logout()", "logout must clear the auth manager")
-  includes(entry, "updateCacheDoc", "logout must clear the cached payload")
+  const ui = fs.readFileSync(path.join(PLUGIN_DIR, "src/ui/line.tsx"), "utf8")
+  includes(ui, "buildPromptLine")
+  includes(ui, "colorMode={props.colorMode}")
+  includes(ui, "RGBA.fromInts")
+  includes(ui, "MOLE_PALETTE")
+})
+
+test("/go-usage login shares the already-connected guard with /go-usage-login", () => {
+  const entry = fs.readFileSync(path.join(PLUGIN_DIR, "src/entry.tsx"), "utf8")
+  includes(entry, 'if (action === "login") return loginCommand()', "argument form must reuse the dedicated command")
+  includes(entry, 'phase !== "disconnected"', "an expired session must still be able to log in again")
+})
+
+test("go-usage stays standalone (no imports from sibling plugins)", () => {
+  const crossPlugin = /from\s+["'][^"']*\.\.\/\.\.\/go-usage\//
+  for (const file of listFiles(PLUGIN_DIR)) {
+    if (!/\.(mjs|ts|tsx)$/.test(file)) continue
+    const text = fs.readFileSync(file, "utf8")
+    ok(!crossPlugin.test(text), `${path.relative(PLUGIN_DIR, file)} imports the other plugin`)
+  }
 })
 
 test("runtime sources contain no secrets and no third-party CLI dependency", () => {

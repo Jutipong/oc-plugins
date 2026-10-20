@@ -1,8 +1,8 @@
 // go-usage — Console usage fetch with refresh-on-401.
 //
 // Thin layer over the auth manager: one GET, retried once after a silent token
-// refresh. All outcomes are data (never thrown) so the UI can keep rendering
-// the last known values.
+// refresh. All outcomes are data (never thrown) so the footer can keep
+// rendering the last known values.
 
 import { DEFAULT_BASE_URL, buildStatusRequest, fetchJson, normalizeBaseUrl } from "./auth.mjs"
 

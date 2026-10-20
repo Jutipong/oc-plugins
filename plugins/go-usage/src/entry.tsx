@@ -9,7 +9,7 @@ import { resolveOptions } from "./options.mjs"
 import { createUsageService } from "./service.mjs"
 import { normalizeStatus } from "./status.mjs"
 import { createObservable } from "./store.mjs"
-import { SidebarUsage } from "./ui/sidebar.tsx"
+import { PromptUsage } from "./ui/line.tsx"
 
 const NO_FETCH = () => Promise.reject(new Error("fetch unavailable"))
 
@@ -22,7 +22,7 @@ export default Plugin.define({
     const userAgent = `opencode/${context.app?.version ?? "2.0"} (go-usage)`
     const fetchImpl = typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : null
 
-    log.write(`setup interval=${options.intervalSeconds}s base=${options.baseUrl} sidebar=${options.sidebar}`)
+    log.write(`setup interval=${options.intervalSeconds}s base=${options.baseUrl}`)
 
     const [authDoc, updateAuthDoc] = context.storage.store("auth", {
       initial: { access: null, refresh: null, expiresAt: 0, orgId: null },
@@ -65,7 +65,7 @@ export default Plugin.define({
     const cachedAt = Number(cacheDoc.fetchedAt) || 0
     const initialView = auth.connected
       ? cachedPayload
-        ? { phase: "ready", status: normalizeStatus(cachedPayload, cachedAt), stale: true, fetchedAt: cachedAt, error: null }
+        ? { phase: "ready", status: normalizeStatus(cachedPayload, cachedAt), stale: false, fetchedAt: cachedAt, error: null }
         : cachedAt > 0
           ? { phase: "absent", status: null, stale: false, fetchedAt: cachedAt, error: null }
           : { phase: "loading", status: null, stale: false, fetchedAt: 0, error: null }
@@ -254,9 +254,12 @@ export default Plugin.define({
       return loginTask
     }
 
-    /** Explicit `/go-usage-login` — don't start a second flow when connected. */
+    /**
+     * Login entry point: don't start a second flow when connected, unless the
+     * Console session is known to be expired (that is what login is for).
+     */
     function loginCommand() {
-      if (auth.connected) {
+      if (auth.connected && state.get().phase !== "disconnected") {
         toast("info", "Already connected — use /go-usage-logout to disconnect")
         return null
       }
@@ -265,7 +268,7 @@ export default Plugin.define({
 
     async function handleCommand(input) {
       const action = resolveCommand(input, state.get().phase)
-      if (action === "login") return login()
+      if (action === "login") return loginCommand()
       if (action === "logout") return logout()
       if (action === "refresh") return refresh({ manual: true })
       if (action === "details") return showDetails()
@@ -317,22 +320,12 @@ export default Plugin.define({
     }))
 
     const disposers = []
-    if (options.sidebar) {
-      disposers.push(
-        context.ui.slot({
-          ...(options.placement === "bottom" ? { append: "sidebar.content" } : { prepend: "sidebar.content" }),
-          render: () => (
-            <SidebarUsage
-              context={context}
-              state={state}
-              frame={options.frame}
-              barStyle={options.barStyle}
-              colorMode={options.colorMode}
-            />
-          ),
-        }),
-      )
-    }
+    disposers.push(
+      context.ui.slot({
+        append: "prompt.footer.status",
+        render: () => <PromptUsage context={context} state={state} colorMode={options.colorMode} />,
+      }),
+    )
 
     const timer = setInterval(() => {
       void refresh()

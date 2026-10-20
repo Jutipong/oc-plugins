@@ -3,8 +3,8 @@
 Monorepo for OpenCode V2 plugins. Plugins: **esp-buddy** — a playful desk buddy
 that mirrors OpenCode activity onto an ESP32-S3 RLCD buddy screen (ported from
 the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) —
-and **sys-status** — a native macOS/Windows system dashboard for the CLI
-sidebar (no `mo` dependency).
+**go-usage** — OpenCode Go plan meters in the CLI prompt footer — and
+**system-status** — CPU load / RAM in the prompt footer.
 
 ## Commits — explicit confirmation required
 
@@ -20,14 +20,14 @@ sidebar (no `mo` dependency).
     `<name>-send.mjs` / `<name>-send.ps1` out-of-process senders,
     `package.json` (`private: true`, `main: "index.js"`),
     `test/harness.mjs` + `test/mock-loader.mjs`.
-  - **CLI plugin** (`sys-status` shape): `tui.ts` entry (plus `src/`),
+  - **CLI plugin** (`go-usage` shape): `tui.ts` entry (plus `src/`),
     `package.json` exposing `"./tui"`, `scripts/install.mjs` to register the
     folder in `cli.json`, `test/harness.mjs`.
   - Every plugin has `README.md` (install, env vars, behavior) and its harness
     must print `ALL TESTS PASSED`.
-- Env vars are prefixed with the plugin name (`ESP_BUDDY_*`, `SYS_STATUS_*`);
-  legacy `BUDY_*` / `AVATAR_*` names are accepted as fallbacks where
-  compatibility matters.
+- Env vars are prefixed with the plugin name (`ESP_BUDDY_*`, `GO_USAGE_*`,
+  `SYSTEM_STATUS_*`); legacy `BUDY_*` / `AVATAR_*` names are accepted as
+  fallbacks where compatibility matters.
 - Senders resolve: env override → next to `index.js` → the live config dir
   (`~/.config/opencode/plugins/`). Debug logs go to
   `~/.config/opencode/plugins/<name>-debug.log`, OFF unless `<NAME>_DEBUG=1`,
@@ -100,143 +100,64 @@ sidebar (no `mo` dependency).
   list and the SD falls back to `idle`. Wire format: newline-delimited JSON
   `{"event":"<name>"}` at 115200 baud.
 
-## sys-status specifics (CLI plugin, verified 2026-10-18 on OpenCode 2.0.32)
+## system-status specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
 
-- **No `mo`/Mole dependency.** Native collectors only: `darwin.mjs`
-  (`vm_stat`, `df -k /System/Volumes/Data`, `netstat -ib`, `sysctl`,
-  `ioreg IOBlockStorageDriver`, `pmset`, `route`, cached `system_profiler`)
-  and `win32.mjs` (one long-lived PowerShell process streaming CIM/WMI JSON;
-  CPU/memory/uptime from `os`). The harness asserts that no runtime source
-  references `MOLE_BIN` / `mo status --watch` / `brew install mole`.
-- **CLI-only plugin**: register in `~/.config/opencode/cli.json` via
-  `node scripts/install.mjs` (backs up `cli.json`, preserves other entries).
-  Option flags: `--interval --spacing --row-spacing --bar-style --frame
-  --color-mode --sidebar-mode --cores --placement`; invalid values are ignored
-  and existing options are merged, so a fresh install needs an explicit
-  `--sidebar-mode full` to get the stacked dashboard.
-  Windows path: `%USERPROFILE%\.config\opencode\cli.json`. The repo's
-  `plugins/` folder is not an OpenCode discovery path; load it explicitly.
-- **Entry**: `tui.ts` re-exports `src/entry.tsx`
-  (`Plugin.define({ id: "sys-status", setup(ctx) })`). Local CLI plugins do
-  not need `node_modules`: OpenCode's runtime plugin support resolves
-  `@opencode/plugin/tui`, `solid-js`, `@opentui/*` for the loaded plugin.
-- **Two surfaces, one collector** (reference-counted subscribers; starts on
-  first mount, stops ~5 s after the last unmount; CPU sampling floors each
-  core's denominator at the wall-clock window so parked M-series E-cores read
-  idle):
-  - **Sidebar** — prepends `sidebar.content` (42-col sidebar, ~37 usable
-    columns; keep lines ≤36). Compact framed block: CPU (model + speed) /
-    RAM / DSK / PWR / NET with `spacing` = `compact` / `normal` / `airy`.
-    `frame` = `rounded` (default) / `heavy` / `none`, drawn by the model
-    (`╭─╮│╰╯` / `┏━┓┃┗┛`, tone `border`), top border `◈ System`, **no update
-    clock**. Framed content is 32 cells; `frame: "none"` uses 36 and
-    prepends a `● <health score>` header line.
-  - **Sidebar `sidebarMode: "full"`** — stacks the dashboard cards into the
-    sidebar as one column (36 cells, 32 framed): CPU, Memory, Disk, Power,
-    Network; no health/identity header, it starts with the CPU card. All
-    through the same `frame`/
-    `barStyle`/`colorMode`/`cores`. Meters fill the row (label + meter +
-    right-aligned value: 19 cells framed / 23 unframed, power 18/22);
-    network shows `Up` / `Down` rates as numbers in that right column, no
-    sparklines. All
-    card titles carry their headline value right-aligned (chip + GHz, memory
-    used / total, disk used / total, battery level, network IP; long values
-    clipped with `…`). Redundant rows are dropped
-    in the sidebar only: disk `Total` and `Used`, memory `Free` and `Total`,
-    power `Level` and the network footer (both return when the title value is
-    missing).
-    `rowSpacing` = `compact` (cards adjacent) / `normal` (blank line) /
-    `airy` (faint separator; falls back to `spacing`). Overflowing fields are
-    dropped, not mangled (`4P+4E`, battery `· Charged` at 32 cells).
-    ~23–27 lines tall; `mode: "full"` is the model option.
-- **Health score**: `src/health.mjs` computes the transparent heuristic
-  (readme has the penalty table: CPU/memory/disk, battery health + cycles,
-  disk I/O, uptime) → `● 97 · Excellent · Restart Recommended` on a healthy
-  Mac fixture; shown in the unframed sidebar header.
-- **Battery telemetry**: `ioreg -rc AppleSmartBattery` prints discharging
-  power/current as unsigned 64-bit (`2^64 + x`: `BatteryPower=18446744073709540941`
-  is −10.675 W); `parseIoregBattery` folds it back to signed with BigInt and
-  drops implausible magnitudes (watts > 500 / amps > 50 / volts > 100). On
-  battery power the `Input` row hides and cycles move to a `Cycles` row when
-  no adapter is attached.
-- **Bars and colors**: sidebar bars are full-width on their own line below a
-  label/value line. `barStyle` = `mole` (default: `█` whole cells + `░` track
-  in the same threshold color, CPU/mem/disk/PWR load 50/80, battery level/health
-  20/50) or `solid` (filled blocks only). `colorMode` = `mole` (default:
-  fixed palette #A5D6A7 / #FFA94D / #FF5F5F / #C79FD7 / #404040 / #737373)
-  or `theme` (resolved OpenCode theme). The sidebar `PWR` bar is scaled to
-  the adapter's max wattage but shows the actual system draw.
-- **Options** (cli.json): `interval` (1–10 s), `sidebar`, `sidebarMode`
-  (`compact` default / `full` stacked dashboard), `placement` (top/bottom of
-  `sidebar.content`), `spacing` (compact block), `rowSpacing` (full sidebar
-  card gaps), `cores` (full sidebar CPU cores: `p` summary / `all`),
-  `barStyle`, `frame`, `colorMode`.
-- **Bun quirks on this machine**: `os.loadavg()` returns ~0 (use
-  `sysctl vm.loadavg`), `fs.statfs` is missing (use `df`), but
-  `os.cpus()` times, `os.uptime()`, `os.totalmem()` and `execFile` work.
-- **No Processes section** anywhere; the harness asserts the rendered models
-  never contain the string `Process`.
-- **Tests**: `cd plugins/sys-status && node test/harness.mjs` (must print
-  `ALL TESTS PASSED`), live sanitized snapshot via `node
-  test/collect-smoke.mjs 8`. Windows parsing is fixture-tested on macOS; live
-  Windows verification is manual on a Windows machine.
-- Mole (GPL-3.0) is only the visual inspiration; no code is copied and the
-  plugin does not require it. Keep the README attribution intact.
+- **Surface**: prompt footer only — `context.ui.slot({ append: "prompt.footer.status", ... })`.
+  No commands, no storage, no network. Entry `tui.ts` → `src/entry.tsx`
+  (`Plugin.define({ id: "system-status", setup(ctx) })`).
+- **Line**: `[CPU:37% · RAM:62%]` (19 cells). Labels `CPU:`/`RAM:` are muted,
+  values use the threshold tone (50/80), brackets and ` · ` separators are
+  faint. Missing values render `—`; collector errors prefix `! `. Clipping
+  (36 max) drops `RAM` whole and keeps the brackets balanced.
+- **Collector** (`src/collector.mjs`, reference-counted): starts on the first
+  footer subscriber, stops ~5 s after the last one; CPU = `os.cpus()` deltas with
+  an EMA (0.35) and a denominator floor at the wall-clock window; RAM on macOS =
+  `vm_stat` active + wired + compressed (every 5 s), elsewhere `total - freemem`.
+  There is **no temperature source** (macOS 26+ removed the `powermetrics smc`
+  sampler); the plugin does not spawn sensor helpers.
+- **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (2 s, 1–10),
+  `colorMode` / `SYSTEM_STATUS_COLOR_MODE` (`mole` default / `theme`),
+  `debug` / `SYSTEM_STATUS_DEBUG=1`
+  (`~/.config/opencode/plugins/system-status-debug.log`, 512 KB truncate).
+- **Tests**: `cd plugins/system-status && node test/harness.mjs` (offline, no
+  processes; must print `ALL TESTS PASSED`). Covers CPU delta math, `vm_stat`,
+  clipping, lifecycle with injected commands, install helper and packaging.
 
-## go-usage specifics (CLI plugin, verified 2026-10-18 on OpenCode 2.0.32)
+## go-usage specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
 
-- **Data source**: `GET {console}/api/go/status` (console base
+- **Surface**: prompt footer only — `context.ui.slot({ append: "prompt.footer.status", ... })`.
+  Entry `tui.ts` → `src/entry.tsx` (`Plugin.define({ id: "go-usage", ... })`).
+  No sidebar/frame/bars.
+- **Line**: `[H:92% · W:45% · M:44%]` (H rolling 5 h, W weekly, M monthly).
+  Labels are muted, values use the 50/80 threshold tone, brackets and ` · ` are
+  faint; missing meters render `—`; stale values prefix `! `. Clipping drops
+  trailing meters whole (`M`, then `W`) and keeps the brackets balanced.
+  Non-ready states are `Go …` / `Go —` / `Go !`.
+- **Data source**: `GET {console}/api/go/status` (base
   `https://opencode.ai/console`, env/option overridable). Response is nullable
   (no subscription): `access.meters.{fiveHour,week,month}` each
   `{resetsAt, limitMicroCents, usedMicroCents}` (micro-cents = 1e8/dollar,
-  strings for bigint safety). Meter tones match sys-status: tone `>=80 danger`,
-  `>=50 warning`, else success; integer percent with `">99% used"` when
-  rounding hits 100 without exhaustion; reset countdown
-  `ceil(minutes)` → `9d 14h` / `12h 12m` / `0h 31m`.
-- **Auth**: the same OAuth device flow the CLI uses for its "OpenCode Console
-  account" integration — `POST /console/auth/device/code`
-  `{client_id:"opencode-cli", supports_org_scope:true}` (returns `user_code`
-  and a relative `/console/device?user_code=…` URI), poll
-  `POST /console/auth/device/token` `{grant_type:"urn:ietf:params:oauth:grant-type:device_code",
-  device_code, client_id}` handling `authorization_pending` / `slow_down`
-  (+5 s), refresh via `grant_type:"refresh_token"`. API keys (`sk-…`) get
-  **401** on the console API — a device session is required. `x-org-id` is
-  sent from the token (or `GO_USAGE_ORG`); tokens persist in plugin CLI
-  storage.
-- **Sidebar**: prepends `sidebar.content` (42-col sidebar, 36 usable); the
-  frame is **drawn by the model** (not an OpenTUI border box): `frame` =
-  `rounded` (default) / `heavy` / `none`, chars `╭─╮│╰╯` / `┏━┓┃┗┛`, tone
-  `border` → `theme.border.base`, top border = `◈ Go usage` left + last
-  **successful** fetch clock `HH:mm:ss` right (warning color when stale),
-  content width 32 (36 − 2 border − 2 padding). Bars match sys-status:
-  `barStyle` = `mole` (default: whole `█` cells + `░` track, **both in the
-  threshold color**, floor — no partial edge) / `solid` (fill colored, faint
-  blank remainder); one label line (`0h 31m · 92%` — countdown first,
-  percent last) + one full-width bar line per meter. **No footer when fresh**;
-  only a stale warning line
-  (`stale · retrying automatically`) appears when the last refresh failed.
-  `frame: "none"` falls back to the in-content header with 36-col lines.
-- **Colors**: `colorMode` = `mole` (default: sys-status's fixed palette,
-  `src/colors.mjs` — #A5D6A7 / #FFA94D / #FF5F5F / #C79FD7 / #404040 / #737373,
-  resolved to RGBA via `RGBA.fromInts` in `kit.tsx`) or `theme` (resolved
-  OpenCode theme tokens). `base` labels always use `theme.text.base`.
-- **Commands**: `/go-usage` with **no argument is a smart command** —
-  `resolveCommand(input, phase)` in `src/commands.mjs` (harness-tested) shows
-  the details dialog when ready and starts the device login when the phase is
-  `checking`/`disconnected`. Dedicated slash commands: `/go-usage-login`,
-  `/go-usage-logout`, `/go-usage-refresh` (the legacy `/go-usage
-  login|logout|refresh` argument form still works), plus palette entries under
-  "Go usage"; `/go-usage-login` toasts instead of re-authenticating when a
-  session already exists. Logout clears the tokens and the cached payload, and
-  bumps `loginEpoch` / `suppressAdopt` so a pending login or not-yet-cleared
-  storage cannot resurrect the session. Polls every 300 s (5 min, clamped
-  15–3600 s) and caches the payload in durable storage so the sidebar renders
-  instantly after a TUI restart.
-- **Env**: `GO_USAGE_INTERVAL`, `GO_USAGE_BASE_URL`, `GO_USAGE_ORG`,
-  `GO_USAGE_FRAME`, `GO_USAGE_BAR_STYLE`, `GO_USAGE_COLOR_MODE`,
-  `GO_USAGE_NO_OPEN`, `GO_USAGE_DEBUG` (log at
-  `~/.config/opencode/plugins/go-usage-debug.log`, 512 KB truncate).
+  strings for bigint safety). Integer percent, `>99%` when rounding hits 100
+  without exhaustion, `100%` when used >= limit.
+- **Auth**: the CLI's OAuth device flow — `POST /console/auth/device/code`
+  `{client_id:"opencode-cli", supports_org_scope:true}`, poll
+  `POST /console/auth/device/token` handling `authorization_pending` /
+  `slow_down` (+5 s), refresh via `grant_type:"refresh_token"`. API keys
+  (`sk-…`) get 401 on the console API. `x-org-id` comes from the token or
+  `GO_USAGE_ORG`. Tokens live in `plugin.go-usage.*` CLI storage.
+- **Commands**: `/go-usage` with no argument is a smart command
+  (`resolveCommand(input, phase)`): details when ready, device login when
+  `checking`/`disconnected`. Dedicated `/go-usage-login`, `/go-usage-logout`,
+  `/go-usage-refresh`; palette group **Go usage**. The login command refuses to
+  start a second flow when connected **unless** the phase is `disconnected`;
+  the argument form routes through the same `loginCommand()`. Logout clears
+  tokens + cached payload and bumps `loginEpoch` / `suppressAdopt` so a pending
+  login or stale storage cannot resurrect the session.
+- **Options/env**: `interval` / `GO_USAGE_INTERVAL` (300 s, 15–3600),
+  `baseUrl` / `GO_USAGE_BASE_URL`, `org` / `GO_USAGE_ORG`, `colorMode` /
+  `GO_USAGE_COLOR_MODE` (`mole` / `theme`), `openBrowser` /
+  `GO_USAGE_NO_OPEN=1`, `debug` / `GO_USAGE_DEBUG=1`
+  (`~/.config/opencode/plugins/go-usage-debug.log`, 512 KB truncate). The
+  payload is cached in storage so the footer renders instantly after restart.
 - **Tests**: `cd plugins/go-usage && node test/harness.mjs` (offline, no
-  network; must print `ALL TESTS PASSED`). The live first leg was verified
-  manually: `device/code` → 200 with `user_code`, `go/status` with a bogus
-  token → 401 `{"_tag":"Unauthorized"}`.
+  network; must print `ALL TESTS PASSED`).

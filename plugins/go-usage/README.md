@@ -1,81 +1,49 @@
 # go-usage
 
-OpenCode **Go** plan usage in the OpenCode V2 terminal sidebar: rolling (5h),
-weekly and monthly meters with btop-style bars, percentages and reset
-countdowns — the same numbers the Console shows at
-<https://opencode.ai/console/…/go>.
+OpenCode **Go** plan usage as a single line in the OpenCode V2 CLI **prompt
+footer**:
 
 ```text
-╭─ ◈ Go usage ────────── 22:31:05 ─╮
-│ Rolling             0h 31m · 92% │
-│ █████████████████████████████░░░ │
-│ Weekly             12h 12m · 45% │
-│ ██████████████░░░░░░░░░░░░░░░░░░ │
-│ Monthly             9d 14h · 44% │
-│ ██████████████░░░░░░░░░░░░░░░░░░ │
-╰──────────────────────────────────╯
+[H:92% · W:45% · M:44%]
 ```
 
-Bar colors use the same buckets as sys-status (not the Console's): green below
-50%, yellow 50–79%, red 80% and above. Bars mirror **sys-status**: whole `█`
-cells for the used part (floor, no partial edge) and a `░` track —
-`barStyle: "mole"` (default) keeps fill and track in the same threshold color,
-`barStyle: "solid"` leaves the remainder blank.
+- `H` — rolling 5-hour meter, `W` — weekly, `M` — monthly (same order as the
+  Console cards).
+- Each percentage is colored with the shared threshold buckets: green below
+  50%, yellow 50–79%, red 80% and above. The brackets and `·` separators stay
+  faint and the `H:`/`W:`/`M:` labels stay muted, so the numbers are the
+  loudest part of the line.
+- A meter without data renders as `H:—`; with no data at all the line is
+  `[H:— · W:— · M:—]`.
+- When the latest refresh failed but values are kept, the line is prefixed with
+  a warning `! `: `! [H:92% · W:45% · M:44%]`.
+- Non-ready states always show a short marker: `Go …` (signed in / loading),
+  `Go —` (not connected or no subscription), `Go !` (fetch error).
 
-Colors follow sys-status too — `colorMode: "mole"` (default) uses the fixed
-Mole palette:
+No frame, no bars, no sidebar: this plugin owns the `prompt.footer.status` slot
+only.
 
-| tone | color | used for |
-| --- | --- | --- |
-| success | `#A5D6A7` | meters below 50% |
-| warning | `#FFA94D` | 50–79% (and the stale clock) |
-| error | `#FF5F5F` | 80% and above / failures |
-| accent | `#C79FD7` | `◈ Go usage` title |
-| border | `#404040` | frame lines |
-| muted | `#737373` | reset countdown, clock, hints |
+## Design
 
-Set `colorMode: "theme"` to follow the resolved OpenCode theme instead.
-
-The block is framed by the model itself: `◈ Go usage` top-left, the clock of
-the last **successful** fetch top-right (stale tone yellow/red while showing
-stale values). There is no footer line while data is fresh — a warning line
-(`stale · retrying automatically`) appears only when the last refresh failed.
-`frame: "none"` restores the plain header layout.
-
-## How it gets the data
-
-- Login uses the **same OAuth device flow as the OpenCode CLI's "OpenCode
-  Console account" connection** (client `opencode-cli`): `/go-usage` shows a
-  code + URL (`/go-usage-login` does the same), you approve in the browser, and
-  tokens are stored in plugin storage with automatic refresh.
-- Meters come from `GET https://opencode.ai/console/api/go/status` — the route
-  the Console SPA renders from. This is not a documented public API; endpoints
-  are isolated in `src/auth.mjs`, and `GO_USAGE_BASE_URL` / the `baseUrl`
-  option can point elsewhere if they ever move.
-- API keys (`sk-…` in `auth.json`) do **not** work on the Console API; only the
-  device-flow session works. The plugin never reads your other credentials.
-- Tokens live in OpenCode's per-plugin CLI storage (plain JSON, like every
-  other CLI plugin); `/go-usage logout` clears them.
+This plugin owns the prompt footer only: one OAuth device login, one token /
+payload store (`plugin.go-usage.*`), and one 5-minute polling loop. It replaces
+the old sidebar `go-usage` plugin; the sidebar, frame and bar code is gone.
 
 ## Commands
 
-| Command / palette            | What it does                                          |
-| ---------------------------- | ----------------------------------------------------- |
-| `/go-usage`                  | Details dialog — **or starts the login when signed out** |
-| `/go-usage-login`            | Start the device login (palette: **Go usage: connect**)|
-| `/go-usage-logout`           | Forget the stored Console session (palette: **Go usage: disconnect**) |
-| `/go-usage-refresh`          | Fetch immediately (palette: **Go usage: refresh**)     |
+| Command / palette      | What it does                                             |
+| ---------------------- | -------------------------------------------------------- |
+| `/go-usage`            | Details dialog — **or starts the login when signed out** |
+| `/go-usage-login`      | Start the device login (palette: **Go usage: connect**)  |
+| `/go-usage-logout`     | Forget the stored Console session (palette: **Go usage: disconnect**) |
+| `/go-usage-refresh`    | Fetch immediately (palette: **Go usage: refresh**)       |
 
-The legacy argument form still works: `/go-usage login`, `/go-usage logout`,
-`/go-usage refresh`.
-
-The sidebar polls every **5 minutes** by default (300 s, adjustable down to
-15 s) and keeps the last known values when a fetch fails — the clock turns
-yellow and a warning line (`stale · retrying automatically`) appears.
+The legacy argument form still works: `/go-usage login`,
+`/go-usage logout`, `/go-usage refresh`.
 
 ## Install
 
-Requires OpenCode **V2** (tested on v2.0.32). The plugin is CLI-only, so it is
+Requires OpenCode **V2** (tested on v2.1.1). The plugin is CLI-only, so it is
 registered in `cli.json`, not `opencode.json`.
 
 ```sh
@@ -94,51 +62,53 @@ The script backs up `cli.json`, preserves other plugin entries, and writes:
   "plugins": [
     {
       "package": "file:///Users/js.dev/SourceCode/oc-plugins/plugins/go-usage",
-      "options": { "interval": 60 }
+      "options": { "interval": 300 }
     }
   ]
 }
 ```
 
-Then restart OpenCode, open a session (`session.sidebar` must not be `"hide"`),
-and run `/go-usage` — when signed out it starts the login directly. The sidebar
-block appears above the built-in sidebar entries.
+Then restart OpenCode, open a session, and run `/go-usage` — when signed
+out it starts the login directly. The line appears in the prompt footer, so it
+is visible while composing a message (not on the home screen).
 
 ## Options and environment
 
-Options go in the `cli.json` plugin entry; `GO_USAGE_*` environment variables
-are fallbacks (options win).
+Options go in the `cli.json` plugin entry; `GO_USAGE_*` environment
+variables are fallbacks (options win).
 
-| Option        | Env                     | Default                          | Meaning                        |
-| ------------- | ----------------------- | -------------------------------- | ------------------------------ |
-| `interval`    | `GO_USAGE_INTERVAL`     | `300` (5 min)                    | Poll seconds (clamped 15–3600) |
-| `baseUrl`     | `GO_USAGE_BASE_URL`     | `https://opencode.ai/console`    | Console base URL               |
-| `org`         | `GO_USAGE_ORG`          | token org                        | Explicit `x-org-id` override   |
-| `frame`       | `GO_USAGE_FRAME`        | `"rounded"`                      | Border: `rounded` / `heavy` / `none` |
-| `barStyle`    | `GO_USAGE_BAR_STYLE`    | `"mole"`                         | `mole` (toned `░` track, like sys-status) / `solid` |
-| `colorMode`   | `GO_USAGE_COLOR_MODE`   | `"mole"`                         | `mole` (fixed Mole palette, like sys-status) / `theme` |
-| `sidebar`     | —                       | `true`                           | `false` hides the sidebar block|
-| `placement`   | —                       | `"top"`                          | `"bottom"` appends below built-ins |
-| `openBrowser` | `GO_USAGE_NO_OPEN=1`    | `true`                           | Auto-open the login URL        |
-| `debug`       | `GO_USAGE_DEBUG=1`      | `false`                          | Log to `go-usage-debug.log`    |
+| Option        | Env                          | Default                       | Meaning                        |
+| ------------- | ---------------------------- | ----------------------------- | ------------------------------ |
+| `interval`    | `GO_USAGE_INTERVAL`     | `300` (5 min)                 | Poll seconds (clamped 15–3600) |
+| `baseUrl`     | `GO_USAGE_BASE_URL`     | `https://opencode.ai/console` | Console base URL               |
+| `org`         | `GO_USAGE_ORG`          | token org                     | Explicit `x-org-id` override   |
+| `colorMode`   | `GO_USAGE_COLOR_MODE`   | `"mole"`                      | `mole` (fixed palette, like the other CLI plugins) / `theme` |
+| `openBrowser` | `GO_USAGE_NO_OPEN=1`    | `true`                        | Auto-open the login URL        |
+| `debug`       | `GO_USAGE_DEBUG=1`      | `false`                       | Log to `go-usage-debug.log` |
 
 Debug logs: `~/.config/opencode/plugins/go-usage-debug.log` (truncated at
 512 KB, off unless enabled).
 
 ## States
 
-| Sidebar shows                | Meaning                                              |
-| ---------------------------- | ---------------------------------------------------- |
-| `not connected` + hint       | No session yet — run `/go-usage` to connect           |
-| `checking usage…`            | Signed in, first fetch in flight                      |
-| `no active Go subscription`  | Console account has no Go plan (`go/status` → `null`) |
-| `session expired`            | Refresh token rejected — run `/go-usage` to reconnect |
-| `fetch failed · HTTP …`      | Network/HTTP error, retries automatically             |
-| values + `stale · retrying`  | Refresh failed but previous values are kept           |
+| Footer shows                | Meaning                                               |
+| --------------------------- | ----------------------------------------------------- |
+| `Go …`                      | First fetch in flight                                 |
+| `Go —`                      | No session yet, or the account has no Go subscription |
+| `Go !`                      | Fetch failed and there are no cached values           |
+| `[H:… · W:… · M:…]`         | Live values                                           |
+| `! [H:… · W:… · M:…]`       | Refresh failed; last known values are kept            |
 
-Disconnecting (`/go-usage logout`) clears the stored tokens and the cached
-payload; an in-flight login is invalidated too, so the session cannot come back
-on its own.
+## How it gets the data
+
+- Login uses the same OAuth device flow as the OpenCode CLI's "OpenCode Console
+  account" connection (client `opencode-cli`); tokens are stored in this
+  plugin's own CLI storage and refreshed automatically.
+- Meters come from `GET https://opencode.ai/console/api/go/status`, the route
+  the Console SPA renders from. `GO_USAGE_BASE_URL` / the `baseUrl` option
+  can point elsewhere if it ever moves.
+- API keys (`sk-…` in `auth.json`) do not work on the Console API; only the
+  device-flow session works. The plugin never reads your other credentials.
 
 ## Tests
 
@@ -147,16 +117,19 @@ cd plugins/go-usage
 node test/harness.mjs   # or: bun run test
 ```
 
-Offline only: bar rendering, percent/badge/tone rules, reset countdown
-formatting, payload normalization, sidebar models for every state, smart
-command routing (`/go-usage` with no argument), device-flow state machine
-(`authorization_pending`, `slow_down` backoff, expiry, cancel, refresh),
-401 → refresh → retry, logout guards, install helper patching, and source
-hygiene. Must print `ALL TESTS PASSED (N assertions)`.
+Offline only: H/W/M line rendering, per-meter tones, missing meters, stale
+prefix, every phase, width clipping, detail dialog text, smart command routing,
+device-flow state machine (`authorization_pending`, `slow_down` backoff,
+expiry, cancel, refresh), 401 → refresh → retry, options/env resolution,
+install helper patching, packaging, and source hygiene. Must print
+`ALL TESTS PASSED (N assertions)`.
 
 ## Notes
 
 - Unofficial integration with the Console UI's own API. The plugin only reads
   usage; it never subscribes, cancels, or changes billing.
-- The device login is the same one the OpenCode CLI itself uses for its
-  Console account connection; sessions are independent per client.
+- The device login is the same one the OpenCode CLI itself uses for its Console
+  account connection; sessions are independent per client.
+- The prompt footer is one narrow row, so the line is clipped to 36 cells;
+  trailing meters are dropped whole (`M` first, then `W`) and the `[...]`
+  brackets are always kept balanced.
