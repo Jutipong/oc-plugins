@@ -26,7 +26,6 @@ import {
 
 export const DEFAULT_INTERVAL_MS = 2000
 export const RAM_INTERVAL_MS = 5000
-export const KEYBOARD_INTERVAL_MS = 5000
 export const IDLE_STOP_MS = 5000
 
 const BIN = {
@@ -217,7 +216,6 @@ export function createCollector({
   let netBaseline = null
   let netInFlight = null
   let keyValue = null
-  let keyAt = 0
   let keyInFlight = null
   let defaultIface = null
   let defaultIfaceAt = 0
@@ -357,10 +355,9 @@ export function createCollector({
     return null
   }
 
-  /** Throttled by its own cadence: a layout switch is not time critical. */
+  /** Runs on every tick like NET; the in-flight guard keeps a slow probe from stacking. */
   function refreshKeyboard() {
     if (!keyEnabled || keyInFlight || disposed) return keyInFlight
-    keyAt = now()
     keyInFlight = (async () => {
       try {
         const value = await readKeyboard()
@@ -394,7 +391,7 @@ export function createCollector({
     publish()
 
     if (netEnabled) void refreshNet()
-    if (keyEnabled && (keyAt === 0 || at - keyAt >= KEYBOARD_INTERVAL_MS)) void refreshKeyboard()
+    if (keyEnabled) void refreshKeyboard()
     if (!ramInFlight && (ramAt === 0 || at - ramAt >= RAM_INTERVAL_MS)) void refreshRam()
     if (running && !disposed) timer = setTimeout(() => void tick(), tickMs)
   }

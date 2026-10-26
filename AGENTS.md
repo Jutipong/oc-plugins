@@ -130,8 +130,8 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   AppleCurrentKeyboardLayoutInputSourceID` on macOS (no Accessibility
   permission; layout name → short code table in `src/keyboard.mjs`) and a
   PowerShell + user32 `GetKeyboardLayout` probe of the foreground window on
-  Windows (unverified on real hardware); `KEYBOARD_INTERVAL_MS` = 5 s, other
-  platforms omit the field.
+  Windows (unverified on real hardware); probed on every tick like network
+  (in-flight guarded), other platforms omit the field.
   There is **no temperature source** (macOS 26+ removed the `powermetrics smc`
   sampler); the plugin does not spawn sensor helpers.
 - **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (2 s, 1–10),

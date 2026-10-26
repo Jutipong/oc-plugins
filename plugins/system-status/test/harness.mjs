@@ -396,7 +396,7 @@ await testAsync("collector leaves NET out when the network field is switched off
   )
 })
 
-await testAsync("collector publishes the keyboard language and throttles the probe", async () => {
+await testAsync("collector publishes the keyboard language and probes on every tick", async () => {
   const calls = []
   const collector = createCollector({
     intervalMs: 500,
@@ -413,14 +413,14 @@ await testAsync("collector publishes the keyboard language and throttles the pro
   })
   const seen = []
   const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
-  await delay(700)
+  await delay(1200)
   unsubscribe()
   collector.dispose()
 
   eq(seen[0].key, null, "the first snapshot reports an unknown keyboard language")
   eq(seen.at(-1).key, "TH")
   const probes = calls.filter((command) => command.includes("AppleCurrentKeyboardLayoutInputSourceID"))
-  eq(probes.length, 1, `the probe must respect its 5 s cadence: ${probes.join(", ")}`)
+  ok(probes.length >= 2, `the probe follows the CPU cadence: ${probes.join(", ")}`)
   includes(probes[0], "/usr/bin/defaults read com.apple.HIToolbox")
 })
 
@@ -436,11 +436,6 @@ await testAsync("collector keeps the last keyboard language when the probe fails
         ? { ok: true, stdout: "com.apple.keylayout.ABC" }
         : { ok: false, stdout: "", error: new Error("boom") }
     },
-    now: (() => {
-      // Step the clock past the keyboard cadence on every read so the probe runs twice.
-      let clock = 1_000_000
-      return () => (clock += 6000)
-    })(),
     cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
     totalmem: () => 100 * 1024 * 1024,
     logger: { write() {} },
@@ -783,9 +778,9 @@ test("package wiring matches the CLI plugin conventions", () => {
   const collector = fs.readFileSync(path.join(PLUGIN_DIR, "src/collector.mjs"), "utf8")
   includes(collector, "/usr/bin/vm_stat")
   includes(collector, "IDLE_STOP_MS")
-  includes(collector, "KEYBOARD_INTERVAL_MS")
   includes(collector, "netstat")
   includes(collector, "/proc/net/dev")
+  excludes(collector, "KEYBOARD_INTERVAL_MS", "the keyboard probe follows the CPU cadence")
   excludes(collector, "powermetrics")
   excludes(collector, "tempCmd")
   excludes(collector, "MSAcpi")

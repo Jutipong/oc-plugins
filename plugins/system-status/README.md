@@ -38,7 +38,7 @@ language is not known yet.
 | CPU | `os.cpus()` time deltas, EMA-smoothed | every `interval` (2 s) |
 | RAM | macOS: `vm_stat` active + wired + compressed; Windows/other: `total - freemem` | every 5 s |
 | Network | default-route interface byte counters: macOS `netstat -ibn` + `route -n get default`; Linux `/proc/net/dev` + `/proc/net/route`; other platforms render `—` | every `interval` (2 s) |
-| Keyboard | macOS: `defaults read com.apple.HIToolbox AppleCurrentKeyboardLayoutInputSourceID`; Windows: PowerShell + user32 `GetKeyboardLayout` of the foreground window; other platforms hide the field | every 5 s |
+| Keyboard | macOS: `defaults read com.apple.HIToolbox AppleCurrentKeyboardLayoutInputSourceID`; Windows: PowerShell + user32 `GetKeyboardLayout` of the foreground window; other platforms hide the field | every `interval` (2 s) |
 
 The macOS probe reads the HIToolbox preference, so it needs no Accessibility
 permission and follows every layout change (⌃Space / 🌐). Layout names map to a
