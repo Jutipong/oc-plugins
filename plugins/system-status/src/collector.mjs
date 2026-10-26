@@ -1,13 +1,17 @@
-// system-status — CPU / RAM collector.
+// system-status — CPU / RAM / network collector.
 //
 // CPU comes from `os.cpus()` deltas (no processes). RAM uses `vm_stat` on
-// macOS (active + wired + compressed) and `os.freemem()` elsewhere.
+// macOS (active + wired + compressed) and `os.freemem()` elsewhere. Network
+// throughput is the byte-counter delta of the default-route interface
+// (`netstat -ibn` + `route -n get default` on macOS, `/proc/net/dev` +
+// `/proc/net/route` on Linux).
 //
 // The collector is reference-counted: it starts with the first subscriber
 // (the prompt-footer component) and stops a few seconds after the last one,
 // so nothing runs while the footer is not mounted.
 
 import os from "node:os"
+import fs from "node:fs"
 import { execFile } from "node:child_process"
 import { ema, toNumber } from "./format.mjs"
 
@@ -17,7 +21,13 @@ export const IDLE_STOP_MS = 5000
 
 const BIN = {
   vmStat: "/usr/bin/vm_stat",
+  netstat: "/usr/sbin/netstat",
+  route: "/sbin/route",
 }
+
+const PROC_NET_DEV = "/proc/net/dev"
+const PROC_NET_ROUTE = "/proc/net/route"
+const DEFAULT_ROUTE_TTL_MS = 60_000
 
 function defaultExec(command, args, { timeout = 3000 } = {}) {
   return new Promise((resolve) => {
@@ -76,23 +86,110 @@ export function parseVmStatUsed(text, fallbackPageSize = 16384) {
   return (pages.active + pages.wired + pages.compressed) * pageSize
 }
 
+/**
+ * `netstat -ibn` output -> { <iface>: { in, out } } in bytes.
+ *
+ * Only the `<Link#N>` row of each interface is used: the per-address rows
+ * repeat the same counters, so counting them would multiply the traffic.
+ * Those rows may or may not carry an address column, hence the offset.
+ */
+export function parseNetstatCounters(text) {
+  const counters = {}
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const tokens = line.trim().split(/\s+/)
+    const link = tokens.findIndex((token) => token.startsWith("<Link#"))
+    if (link < 1) continue
+    const name = tokens[0].replace(/\*$/, "")
+    if (!name) continue
+    const rest = tokens.slice(link + 1)
+    const offset = rest.length >= 8 ? 1 : 0
+    const inbound = Number(rest[offset + 2])
+    const outbound = Number(rest[offset + 5])
+    if (!Number.isFinite(inbound) || !Number.isFinite(outbound)) continue
+    counters[name] = { in: inbound, out: outbound }
+  }
+  return counters
+}
+
+/** `route -n get default` output -> interface name. */
+export function parseDefaultRouteInterface(text) {
+  const match = String(text ?? "").match(/^\s*interface:\s*(\S+)/m)
+  return match ? match[1] : null
+}
+
+/** `/proc/net/dev` -> { <iface>: { in, out } } in bytes. */
+export function parseProcNetDev(text) {
+  const counters = {}
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const colon = line.indexOf(":")
+    if (colon < 0) continue
+    const name = line.slice(0, colon).trim()
+    if (!name) continue
+    const fields = line.slice(colon + 1).trim().split(/\s+/).map(Number)
+    if (fields.length < 9) continue
+    const [inbound, outbound] = [fields[0], fields[8]]
+    if (!Number.isFinite(inbound) || !Number.isFinite(outbound)) continue
+    counters[name] = { in: inbound, out: outbound }
+  }
+  return counters
+}
+
+/** `/proc/net/route` -> default-route interface name. */
+export function parseProcRoute(text) {
+  let best = null
+  for (const line of String(text ?? "").split(/\r?\n/).slice(1)) {
+    const fields = line.trim().split(/\s+/)
+    if (fields.length < 8) continue
+    const [iface, destination, , flags, , , metric] = fields
+    if (destination !== "00000000") continue
+    if ((Number.parseInt(flags, 16) & 0x2) === 0) continue
+    const cost = Number(metric)
+    if (!best || (Number.isFinite(cost) && cost < best.cost)) best = { iface, cost: Number.isFinite(cost) ? cost : 0 }
+  }
+  return best?.iface ?? null
+}
+
+/** Busiest non-loopback interface, used when the default route cannot be read. */
+export function pickActiveInterface(counters = {}) {
+  let best = null
+  for (const [name, value] of Object.entries(counters)) {
+    if (/^(lo|lo0|gif|stf|bridge)/.test(name)) continue
+    const total = (toNumber(value?.in) ?? 0) + (toNumber(value?.out) ?? 0)
+    if (!best || total > best.total) best = { name, total }
+  }
+  return best?.name ?? null
+}
+
+/** Counter snapshot delta -> bytes per second, or null when a baseline is missing. */
+export function rateBetween(previous, current, elapsedMs) {
+  const elapsed = toNumber(elapsedMs)
+  if (!previous || !current || elapsed == null || elapsed <= 0) return null
+  const delta = (before, after) => Math.max(0, (toNumber(after) ?? 0) - (toNumber(before) ?? 0))
+  const seconds = elapsed / 1000
+  return { down: delta(previous.in, current.in) / seconds, up: delta(previous.out, current.out) / seconds }
+}
+
 function errorText(error) {
   return String(error?.message ?? error ?? "unknown error")
 }
 
 export function createCollector({
   intervalMs = DEFAULT_INTERVAL_MS,
+  network = true,
   logger,
   platform = process.platform,
   exec = defaultExec,
+  readFile = (file) => fs.promises.readFile(file, "utf8"),
   now = Date.now,
   cpus = () => os.cpus(),
   totalmem = () => os.totalmem(),
   freemem = () => os.freemem(),
 } = {}) {
   const tickMs = Math.max(500, toNumber(intervalMs) ?? DEFAULT_INTERVAL_MS)
+  const netEnabled = network !== false
 
   let snapshot = { cpu: null, ram: null, stale: false, error: null, updatedAt: 0 }
+  if (netEnabled) snapshot.net = null
   const subscribers = new Set()
   let previousCpus = cpus()
   let previousAt = now()
@@ -100,6 +197,11 @@ export function createCollector({
   let ramValue = null
   let ramAt = 0
   let ramInFlight = null
+  let netValue = null
+  let netBaseline = null
+  let netInFlight = null
+  let defaultIface = null
+  let defaultIfaceAt = 0
   let timer = null
   let idleTimer = null
   let running = false
@@ -149,6 +251,81 @@ export function createCollector({
     return ramInFlight
   }
 
+  async function readDefaultInterface() {
+    if (platform === "linux") {
+      try {
+        return parseProcRoute(await readFile(PROC_NET_ROUTE))
+      } catch {
+        return null
+      }
+    }
+    const result = await exec(BIN.route, ["-n", "get", "default"], { timeout: 1500 })
+    return result.ok ? parseDefaultRouteInterface(result.stdout) : null
+  }
+
+  /** Default-route interface (cached for DEFAULT_ROUTE_TTL_MS), else the busiest one. */
+  async function resolveInterface(counters) {
+    const fresh = defaultIface && now() - defaultIfaceAt < DEFAULT_ROUTE_TTL_MS
+    if (!fresh) {
+      const found = await readDefaultInterface()
+      if (found) {
+        defaultIface = found
+        defaultIfaceAt = now()
+      }
+    }
+    if (defaultIface && counters[defaultIface]) return defaultIface
+    const fallback = pickActiveInterface(counters)
+    if (fallback) {
+      defaultIface = fallback
+      defaultIfaceAt = now()
+    }
+    return fallback
+  }
+
+  async function readNetCounters() {
+    try {
+      if (platform === "linux") {
+        const counters = parseProcNetDev(await readFile(PROC_NET_DEV))
+        const iface = await resolveInterface(counters)
+        return iface && counters[iface] ? { iface, ...counters[iface] } : null
+      }
+      if (platform === "darwin") {
+        const result = await exec(BIN.netstat, ["-ibn"], { timeout: 2000 })
+        if (!result.ok) return null
+        const counters = parseNetstatCounters(result.stdout)
+        const iface = await resolveInterface(counters)
+        return iface && counters[iface] ? { iface, ...counters[iface] } : null
+      }
+    } catch (error) {
+      logger?.write?.(`net failed: ${errorText(error)}`)
+    }
+    return null
+  }
+
+  function refreshNet() {
+    if (netInFlight || disposed) return netInFlight
+    netInFlight = (async () => {
+      try {
+        const counters = await readNetCounters()
+        const at = now()
+        if (counters) {
+          // A new baseline (first sample, interface switch) yields no rate yet.
+          const previous = netBaseline && netBaseline.iface === counters.iface ? netBaseline : null
+          const rate = previous ? rateBetween(previous, counters, at - previous.at) : null
+          netValue = rate ?? null
+          netBaseline = { ...counters, at }
+        }
+      } catch (error) {
+        logger?.write?.(`net failed: ${errorText(error)}`)
+      } finally {
+        netInFlight = null
+        snapshot = { ...snapshot, net: netValue }
+        publish()
+      }
+    })()
+    return netInFlight
+  }
+
   async function tick() {
     timer = null
     if (!running || disposed) return
@@ -166,6 +343,7 @@ export function createCollector({
     }
     publish()
 
+    if (netEnabled) void refreshNet()
     if (!ramInFlight && (ramAt === 0 || at - ramAt >= RAM_INTERVAL_MS)) void refreshRam()
     if (running && !disposed) timer = setTimeout(() => void tick(), tickMs)
   }

@@ -103,25 +103,35 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
 ## system-status specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
 
 - **Surface**: prompt footer only — `context.ui.slot({ append: "prompt.footer.status", ... })`.
-  No commands, no storage, no network. Entry `tui.ts` → `src/entry.tsx`
+  No commands, no storage, no network requests. Entry `tui.ts` → `src/entry.tsx`
   (`Plugin.define({ id: "system-status", setup(ctx) })`).
-- **Line**: `[CPU:37% · RAM:62%]` (19 cells). Labels `CPU:`/`RAM:` are muted,
-  values use the threshold tone (50/80), brackets and ` · ` separators are
-  faint. Missing values render `—`; collector errors prefix `! `. Clipping
-  (36 max) drops `RAM` whole and keeps the brackets balanced.
+- **Line**: `[CPU:37% · RAM:62% · ↓1.2M ↑240K]` (33 cells at default width 36).
+  Labels `CPU:`/`RAM:` are muted, values use the threshold tone (50/80);
+  network is label-free — `↓`/`↑` in bytes/s (`K` = 1024, one decimal < 10)
+  toned by activity (green when flowing, muted when idle/unknown) — brackets
+  and ` · ` separators are faint. Missing values render `—` (`↓— ↑—` while the
+  first counter baseline is pending); collector errors prefix `! `. Clipping
+  drops the trailing field whole (`↓ ↑` named NET first, then `RAM`) and keeps
+  the brackets balanced. `network: false` removes the field entirely.
 - **Collector** (`src/collector.mjs`, reference-counted): starts on the first
   footer subscriber, stops ~5 s after the last one; CPU = `os.cpus()` deltas with
   an EMA (0.35) and a denominator floor at the wall-clock window; RAM on macOS =
-  `vm_stat` active + wired + compressed (every 5 s), elsewhere `total - freemem`.
+  `vm_stat` active + wired + compressed (every 5 s), elsewhere `total - freemem`;
+  network = default-route interface byte-counter deltas each tick (macOS
+  `netstat -ibn` + `route -n get default` cached 60 s, Linux `/proc/net/dev` +
+  `/proc/net/route`, else null). A new baseline (start / interface switch)
+  reports no rate for one tick.
   There is **no temperature source** (macOS 26+ removed the `powermetrics smc`
   sampler); the plugin does not spawn sensor helpers.
 - **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (2 s, 1–10),
+  `network` / `SYSTEM_STATUS_NETWORK` (`true`; `false`/`0`/`off` hides it),
   `colorMode` / `SYSTEM_STATUS_COLOR_MODE` (`mole` default / `theme`),
   `debug` / `SYSTEM_STATUS_DEBUG=1`
   (`~/.config/opencode/plugins/system-status-debug.log`, 512 KB truncate).
 - **Tests**: `cd plugins/system-status && node test/harness.mjs` (offline, no
   processes; must print `ALL TESTS PASSED`). Covers CPU delta math, `vm_stat`,
-  clipping, lifecycle with injected commands, install helper and packaging.
+  `netstat`/`/proc` parsing, rate math, clipping, lifecycle with injected
+  commands, install helper and packaging.
 
 ## go-usage specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
 

@@ -12,10 +12,11 @@ export default Plugin.define({
     const options = resolveOptions({ options: context.options ?? {}, env })
     const log = createLogger(options.debug)
 
-    log.write(`setup interval=${options.intervalSeconds}s`)
+    log.write(`setup interval=${options.intervalSeconds}s net=${options.network}`)
 
     const collector = createCollector({
       intervalMs: options.intervalSeconds * 1000,
+      network: options.network,
       logger: log,
     })
 

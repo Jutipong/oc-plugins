@@ -16,12 +16,23 @@ import {
   displayWidth,
   ema,
   formatPercent,
+  formatRate,
   toNumber,
   toneForUsage,
   truncate,
 } from "../src/format.mjs"
-import { createCollector, parseVmStatUsed, sampleCpu } from "../src/collector.mjs"
-import { STATUS_FIELDS, buildPromptLine } from "../src/model.mjs"
+import {
+  createCollector,
+  parseDefaultRouteInterface,
+  parseNetstatCounters,
+  parseProcNetDev,
+  parseProcRoute,
+  parseVmStatUsed,
+  pickActiveInterface,
+  rateBetween,
+  sampleCpu,
+} from "../src/collector.mjs"
+import { STATUS_FIELDS, buildPromptLine, formatNetwork } from "../src/model.mjs"
 import { resolveOptions } from "../src/options.mjs"
 import { createLogger, logPath } from "../src/log.mjs"
 import { MOLE_PALETTE } from "../src/colors.mjs"
@@ -129,6 +140,22 @@ test("toNumber accepts numbers, bigints and numeric strings", () => {
   eq(toNumber(null), null)
 })
 
+test("rate formatting auto-scales bytes and stays within four cells", () => {
+  eq(formatRate(null), "—")
+  eq(formatRate(NaN), "—")
+  eq(formatRate(-5), "—")
+  eq(formatRate(0), "0B")
+  eq(formatRate(512), "512B")
+  eq(formatRate(1024), "1.0K")
+  eq(formatRate(3.4 * 1024), "3.4K")
+  eq(formatRate(12 * 1024), "12K")
+  eq(formatRate(1.2 * 1024 * 1024), "1.2M")
+  eq(formatRate(340 * 1024 * 1024), "340M")
+  for (const value of [0, 999, 1000, 1023, 1024, 5000, 1e6, 5e8, 3e12, 1e15]) {
+    ok(displayWidth(formatRate(value)) <= 4, `too wide: ${formatRate(value)}`)
+  }
+})
+
 // ---------------------------------------------------------------------------
 // CPU / RAM parsers
 // ---------------------------------------------------------------------------
@@ -162,12 +189,84 @@ test("parseVmStatUsed sums active, wired and compressed pages", () => {
   eq(parseVmStatUsed(""), 0)
 })
 
-await testAsync("collector samples CPU/RAM, publishes, and stays reference-counted", async () => {
+// Row shapes below are copied from a real macOS `netstat -ibn`: the first row
+// of an interface carries a link address, address-less links do not.
+const NETSTAT = [
+  "Name       Mtu   Network       Address            Ipkts Ierrs     Ibytes    Opkts Oerrs     Obytes  Coll",
+  "lo0        16384 <Link#1>                       4095693     0 7747326657  4095693     0 7747326657     0",
+  "lo0        16384 127           127.0.0.1        4095693     - 7747326657  4095693     - 7747326657     -",
+  "gif0*      1280  <Link#2>                             0     0          0        0     0          0     0",
+  "en0        1500  <Link#11>   5e:0b:7d:e6:58:1d 39241036     0 41429225438 18378917     0 17246771816     0",
+  "en0        1500  192.168.1     192.168.1.115   39241036     - 41429225438 18378917     - 17246771816     -",
+].join("\n")
+
+test("parseNetstatCounters keeps one row per interface", () => {
+  eq(parseNetstatCounters(NETSTAT), {
+    lo0: { in: 7747326657, out: 7747326657 },
+    gif0: { in: 0, out: 0 },
+    en0: { in: 41429225438, out: 17246771816 },
+  })
+  eq(parseNetstatCounters(""), {})
+  eq(parseNetstatCounters("Name Mtu Network\nen0 1500 junk"), {})
+})
+
+test("parseDefaultRouteInterface reads the interface line", () => {
+  const text = ["   route to: default", "destination: default", "    gateway: 192.168.1.1", "  interface: en0"].join(
+    "\n",
+  )
+  eq(parseDefaultRouteInterface(text), "en0")
+  eq(parseDefaultRouteInterface("nope"), null)
+})
+
+test("parseProcNetDev and parseProcRoute handle the Linux pair", () => {
+  const dev = [
+    "Inter-|   Receive                                                |  Transmit",
+    " face |bytes    packets errs drop fifo frame compressed multicast|bytes    packets errs drop fifo colls carrier compressed",
+    "    lo: 1000 10 0 0 0 0 0 0 1000 10 0 0 0 0 0 0",
+    "  eth0: 123456 100 0 0 0 0 0 0 654321 90 0 0 0 0 0 0",
+  ].join("\n")
+  eq(parseProcNetDev(dev), { lo: { in: 1000, out: 1000 }, eth0: { in: 123456, out: 654321 } })
+  eq(parseProcNetDev(""), {})
+
+  const route = [
+    "Iface\tDestination\tGateway \tFlags\tRefCnt\tUse\tMetric\tMask\t\tMTU\tWindow\tIRTT",
+    "eth0\t00000000\t0102A8C0\t0003\t0\t0\t600\t00000000\t0\t0\t0",
+    "wlan0\t00000000\t0102A8C0\t0003\t0\t0\t100\t00000000\t0\t0\t0",
+    "eth0\t0002A8C0\t00000000\t0001\t0\t0\t100\t00FFFFFF\t0\t0\t0",
+  ].join("\n")
+  eq(parseProcRoute(route), "wlan0")
+  eq(parseProcRoute("Iface\tDestination"), null)
+})
+
+test("pickActiveInterface skips loopback, bridges and dead links", () => {
+  eq(
+    pickActiveInterface({
+      lo0: { in: 9000, out: 9000 },
+      gif0: { in: 5000, out: 5000 },
+      en0: { in: 50, out: 10 },
+      utun3: { in: 900, out: 100 },
+    }),
+    "utun3",
+  )
+  eq(pickActiveInterface({ lo0: { in: 1, out: 1 } }), null)
+  eq(pickActiveInterface({}), null)
+})
+
+test("rateBetween turns counter deltas into bytes per second", () => {
+  eq(rateBetween({ in: 1000, out: 500 }, { in: 3000, out: 1500 }, 1000), { down: 2000, up: 1000 })
+  eq(rateBetween({ in: 1000, out: 500 }, { in: 5000, out: 2500 }, 2000), { down: 2000, up: 1000 })
+  eq(rateBetween({ in: 5000, out: 100 }, { in: 100, out: 100 }, 2000), { down: 0, up: 0 })
+  eq(rateBetween(null, { in: 0, out: 0 }, 1000), null)
+  eq(rateBetween({ in: 0, out: 0 }, { in: 0, out: 0 }, 0), null)
+})
+
+await testAsync("collector samples CPU/RAM/NET, publishes, and stays reference-counted", async () => {
   let step = 0
   const fakeCpus = () => {
     step += 1
     return [{ times: { user: 1000 + step * 6000, nice: 0, sys: 500 + step * 2000, idle: 10000 + step * 72000, irq: 0 } }]
   }
+  let netStep = 0
   const exec = async (command) => {
     if (command.endsWith("vm_stat")) {
       return {
@@ -180,10 +279,20 @@ await testAsync("collector samples CPU/RAM, publishes, and stays reference-count
         ].join("\n"),
       }
     }
+    if (command.endsWith("netstat")) {
+      netStep += 1
+      const inbound = 100_000 + netStep * 200_000
+      const outbound = 50_000 + netStep * 100_000
+      return {
+        ok: true,
+        stdout: [`en0 1500 <Link#11> aa:bb:cc:dd:ee:ff 0 0 ${inbound} 0 0 ${outbound} 0`].join("\n"),
+      }
+    }
+    if (command.endsWith("route")) return { ok: true, stdout: "  interface: en0" }
     return { ok: false, stdout: "" }
   }
   const collector = createCollector({
-    intervalMs: 50,
+    intervalMs: 500,
     platform: "darwin",
     exec,
     cpus: fakeCpus,
@@ -192,38 +301,92 @@ await testAsync("collector samples CPU/RAM, publishes, and stays reference-count
   })
   const seen = []
   const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
-  await delay(180)
+  // The tick interval is clamped to 500 ms, and the first NET sample only
+  // establishes the counter baseline — the rate needs a second sample.
+  await delay(1200)
   unsubscribe()
   collector.dispose()
 
   const latest = seen.at(-1)
   ok(typeof latest.cpu === "number" && latest.cpu >= 0 && latest.cpu <= 100, `cpu: ${latest.cpu}`)
   ok(typeof latest.ram === "number" && latest.ram > 0 && latest.ram <= 100, `ram: ${latest.ram}`)
+  ok(latest.net && latest.net.down > 0 && latest.net.up > 0, `net: ${JSON.stringify(latest.net)}`)
   ok(!("temp" in latest), "the collector no longer publishes temperature")
   ok(seen.length > 1, "the collector publishes more than the initial snapshot")
+})
+
+await testAsync("collector leaves NET out when the network field is switched off", async () => {
+  const calls = []
+  const collector = createCollector({
+    intervalMs: 500,
+    network: false,
+    platform: "darwin",
+    exec: async (command) => {
+      calls.push(command)
+      return { ok: false, stdout: "" }
+    },
+    cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
+    totalmem: () => 100 * 1024 * 1024,
+    logger: { write() {} },
+  })
+  const seen = []
+  const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
+  await delay(700)
+  unsubscribe()
+  collector.dispose()
+
+  ok(seen.length > 0, "the collector published nothing")
+  ok(!("net" in seen.at(-1)), "the network field must be absent when disabled")
+  ok(
+    !calls.some((command) => /netstat|route/.test(command)),
+    `network commands ran while disabled: ${calls.join(", ")}`,
+  )
 })
 
 // ---------------------------------------------------------------------------
 // prompt footer model
 // ---------------------------------------------------------------------------
 
-test("prompt line renders bracketed CPU/RAM with faint labels and toned values", () => {
-  const line = buildPromptLine({ cpu: 37, ram: 62 })
-  eq(flatText(line), "[CPU:37% · RAM:62%]")
-  eq(line.map((segment) => segment.text), ["[", "CPU:", "37%", " · ", "RAM:", "62%", "]"])
-  eq(line.map((segment) => segment.tone), ["faint", "muted", "success", "faint", "muted", "warning", "faint"])
+test("prompt line renders bracketed CPU/RAM/NET with faint labels and toned values", () => {
+  const line = buildPromptLine({ cpu: 37, ram: 62, net: { down: 1.2 * 1024 * 1024, up: 240 * 1024 } })
+  eq(flatText(line), "[CPU:37% · RAM:62% · ↓1.2M ↑240K]")
+  eq(line.map((segment) => segment.text), ["[", "CPU:", "37%", " · ", "RAM:", "62%", " · ", "↓1.2M ↑240K", "]"])
+  eq(line.map((segment) => segment.tone), [
+    "faint",
+    "muted",
+    "success",
+    "faint",
+    "muted",
+    "warning",
+    "faint",
+    "success",
+    "faint",
+  ])
 
-  const hot = buildPromptLine({ cpu: 91, ram: 85 })
-  eq(flatText(hot), "[CPU:91% · RAM:85%]")
+  const hot = buildPromptLine({ cpu: 91, ram: 85, net: { down: 5 * 1024 * 1024, up: 0 } })
+  eq(flatText(hot), "[CPU:91% · RAM:85% · ↓5.0M ↑0B]")
   eq(hot[2].tone, "danger")
   eq(hot[5].tone, "danger")
+  eq(hot[7].tone, "success")
+
+  eq(formatNetwork({ down: 0, up: 0 }), "↓0B ↑0B")
+  eq(formatNetwork({ down: 65.7, up: 161.4 }), "↓66B ↑161B")
+  eq(formatNetwork(null), "↓— ↑—")
+  eq(buildPromptLine({ cpu: 1, ram: 1, net: { down: 0, up: 0 } })[7].tone, "muted")
+})
+
+test("prompt line drops NET entirely when the field is switched off", () => {
+  eq(flatText(buildPromptLine({ cpu: 37, ram: 62 })), "[CPU:37% · RAM:62%]")
+  eq(flatText(buildPromptLine({ cpu: 37, ram: 62, net: undefined })), "[CPU:37% · RAM:62%]")
 })
 
 test("prompt line uses muted em dashes for unknown values", () => {
-  const line = buildPromptLine({ cpu: null, ram: null })
-  eq(flatText(line), "[CPU:— · RAM:—]")
+  const line = buildPromptLine({ cpu: null, ram: null, net: null })
+  eq(flatText(line), "[CPU:— · RAM:— · ↓— ↑—]")
   eq(line[2].tone, "muted")
   eq(line[5].tone, "muted")
+  eq(line[7].tone, "muted")
+  eq(flatText(buildPromptLine({ cpu: null, ram: null })), "[CPU:— · RAM:—]")
 })
 
 test("prompt line marks collector failures with a warning prefix", () => {
@@ -233,30 +396,41 @@ test("prompt line marks collector failures with a warning prefix", () => {
   eq(line[1].text, "[")
 })
 
-test("prompt line keeps brackets balanced and drops RAM whole when narrow", () => {
+test("prompt line keeps brackets balanced and drops NET/RAM whole when narrow", () => {
   const view = { cpu: 37, ram: 62 }
   eq(displayWidth(flatText(buildPromptLine(view))), 19)
   eq(flatText(buildPromptLine(view, { width: 18 })), "[CPU:37%]")
   eq(flatText(buildPromptLine(view, { width: 9 })), "[CPU:37%]")
   eq(flatText(buildPromptLine(view, { width: 8 })), "[CPU:3…]")
 
+  const full = { cpu: 37, ram: 62, net: { down: 1.2 * 1024 * 1024, up: 240 * 1024 } }
+  eq(displayWidth(flatText(buildPromptLine(full))), 33)
+  eq(flatText(buildPromptLine(full, { width: 33 })), "[CPU:37% · RAM:62% · ↓1.2M ↑240K]")
+  eq(flatText(buildPromptLine(full, { width: 32 })), "[CPU:37% · RAM:62%]")
+  eq(flatText(buildPromptLine(full, { width: 18 })), "[CPU:37%]")
+
   const stale = buildPromptLine({ ...view, stale: true }, { width: 8 })
   eq(flatText(stale), "! [CPU:]")
   eq(displayWidth(flatText(stale)), 8)
 
-  for (const width of [36, 19, 18, 9, 8]) {
-    const flat = flatText(buildPromptLine(view, { width }))
-    ok(displayWidth(flat) <= width, `line wider than ${width}: ${flat}`)
-    ok(flat.startsWith("["), `missing opening bracket: ${flat}`)
-    ok(flat.endsWith("]"), `missing closing bracket: ${flat}`)
+  for (const width of [36, 33, 32, 19, 18, 9, 8]) {
+    for (const candidate of [view, full]) {
+      const flat = flatText(buildPromptLine(candidate, { width }))
+      ok(displayWidth(flat) <= width, `line wider than ${width}: ${flat}`)
+      ok(flat.startsWith("[") || flat.startsWith("! ["), `missing opening bracket: ${flat}`)
+      ok(flat.endsWith("]"), `missing closing bracket: ${flat}`)
+    }
   }
-  eq(STATUS_FIELDS.map((field) => field.label), ["CPU:", "RAM:"])
+  eq(STATUS_FIELDS.map((field) => field.label), ["CPU:", "RAM:", undefined])
 })
 
 test("prompt line never leaks internals", () => {
   for (const view of [
     { cpu: 0, ram: 0 },
     { cpu: null, ram: null },
+    { cpu: null, ram: null, net: null },
+    { cpu: 37, ram: 62, net: { down: 0, up: 0 } },
+    { cpu: 37, ram: 62, net: { down: Number.NaN, up: Number.POSITIVE_INFINITY } },
     { cpu: 37, ram: 62, stale: true, error: "boom" },
     {},
   ]) {
@@ -282,6 +456,13 @@ test("option and env resolution uses SYSTEM_STATUS_*", () => {
   eq(resolveOptions({ options: { colorMode: "theme" } }).colorMode, "theme")
   eq(resolveOptions({ env: { SYSTEM_STATUS_COLOR_MODE: "theme" } }).colorMode, "theme")
   eq(resolveOptions({ options: { colorMode: "wat" } }).colorMode, "mole")
+  eq(resolveOptions({}).network, true)
+  eq(resolveOptions({ options: { network: true } }).network, true)
+  eq(resolveOptions({ options: { network: false } }).network, false)
+  eq(resolveOptions({ env: { SYSTEM_STATUS_NETWORK: "0" } }).network, false)
+  eq(resolveOptions({ env: { SYSTEM_STATUS_NETWORK: "off" } }).network, false)
+  eq(resolveOptions({ options: { network: true }, env: { SYSTEM_STATUS_NETWORK: "0" } }).network, true)
+  eq(resolveOptions({ options: { network: false }, env: { SYSTEM_STATUS_NETWORK: "1" } }).network, false)
   eq(resolveOptions({}).debug, false)
   eq(resolveOptions({ options: { debug: true } }).debug, true)
   eq(resolveOptions({ env: { SYSTEM_STATUS_DEBUG: "1" } }).debug, true)
@@ -385,6 +566,8 @@ test("package wiring matches the CLI plugin conventions", () => {
   const collector = fs.readFileSync(path.join(PLUGIN_DIR, "src/collector.mjs"), "utf8")
   includes(collector, "/usr/bin/vm_stat")
   includes(collector, "IDLE_STOP_MS")
+  includes(collector, "netstat")
+  includes(collector, "/proc/net/dev")
   excludes(collector, "powermetrics")
   excludes(collector, "tempCmd")
   excludes(collector, "MSAcpi")
