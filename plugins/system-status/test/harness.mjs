@@ -513,8 +513,19 @@ await testAsync("collector probes Windows through powershell", async () => {
 
 test("prompt line renders bracketed CPU/RAM/NET with faint labels and toned values", () => {
   const line = buildPromptLine({ cpu: 37, ram: 62, net: { down: 1.2 * 1024 * 1024, up: 240 * 1024 } })
-  eq(flatText(line), "[CPU:37% · RAM:62% · ↓1.2M ↑240K]")
-  eq(line.map((segment) => segment.text), ["[", "CPU:", "37%", " · ", "RAM:", "62%", " · ", "↓1.2M ↑240K", "]"])
+  eq(flatText(line), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]")
+  eq(line.map((segment) => segment.text), [
+    "[",
+    "CPU:",
+    "37%",
+    " · ",
+    "RAM:",
+    "62%",
+    " · ",
+    "NET:",
+    "↓1.2M ↑240K",
+    "]",
+  ])
   eq(line.map((segment) => segment.tone), [
     "faint",
     "muted",
@@ -523,20 +534,21 @@ test("prompt line renders bracketed CPU/RAM/NET with faint labels and toned valu
     "muted",
     "warning",
     "faint",
+    "muted",
     "success",
     "faint",
   ])
 
   const hot = buildPromptLine({ cpu: 91, ram: 85, net: { down: 5 * 1024 * 1024, up: 0 } })
-  eq(flatText(hot), "[CPU:91% · RAM:85% · ↓5.0M ↑0B]")
+  eq(flatText(hot), "[CPU:91% · RAM:85% · NET:↓5.0M ↑0B]")
   eq(hot[2].tone, "danger")
   eq(hot[5].tone, "danger")
-  eq(hot[7].tone, "success")
+  eq(hot[8].tone, "success")
 
   eq(formatNetwork({ down: 0, up: 0 }), "↓0B ↑0B")
   eq(formatNetwork({ down: 65.7, up: 161.4 }), "↓66B ↑161B")
   eq(formatNetwork(null), "↓— ↑—")
-  eq(buildPromptLine({ cpu: 1, ram: 1, net: { down: 0, up: 0 } })[7].tone, "muted")
+  eq(buildPromptLine({ cpu: 1, ram: 1, net: { down: 0, up: 0 } })[8].tone, "muted")
 })
 
 test("prompt line drops NET entirely when the field is switched off", () => {
@@ -547,8 +559,8 @@ test("prompt line drops NET entirely when the field is switched off", () => {
 test("prompt line appends the keyboard language as a padded badge", () => {
   const base = { cpu: 37, ram: 62, net: { down: 1.2 * 1024 * 1024, up: 240 * 1024 } }
   const thai = buildPromptLine({ ...base, key: "TH" })
-  eq(flatText(thai), "[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]")
-  eq(displayWidth(flatText(thai)), 40)
+  eq(flatText(thai), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]")
+  eq(displayWidth(flatText(thai)), 44)
   eq(thai.map((segment) => segment.text), [
     "[",
     "CPU:",
@@ -557,17 +569,18 @@ test("prompt line appends the keyboard language as a padded badge", () => {
     "RAM:",
     "62%",
     " · ",
+    "NET:",
     "↓1.2M ↑240K",
     " · ",
     " TH ",
     "]",
   ])
-  eq(thai[9], { text: " TH ", tone: "onKeyboard", bg: "keyboard" })
+  eq(thai[10], { text: " TH ", tone: "onKeyboard", bg: "keyboard" })
   eq(thai[8].bg, undefined, "only the keyboard badge carries a background")
 
-  eq(flatText(buildPromptLine({ ...base, key: "EN" })), "[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  EN ]")
-  eq(flatText(buildPromptLine({ ...base, key: null })), "[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  — ]")
-  eq(flatText(buildPromptLine(base)), "[CPU:37% · RAM:62% · ↓1.2M ↑240K]")
+  eq(flatText(buildPromptLine({ ...base, key: "EN" })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  EN ]")
+  eq(flatText(buildPromptLine({ ...base, key: null })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  — ]")
+  eq(flatText(buildPromptLine(base)), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]")
 
   eq(formatKeyboard("TH"), "TH")
   eq(formatKeyboard(" TH "), "TH")
@@ -578,10 +591,10 @@ test("prompt line appends the keyboard language as a padded badge", () => {
 
 test("prompt line uses muted em dashes for unknown values", () => {
   const line = buildPromptLine({ cpu: null, ram: null, net: null })
-  eq(flatText(line), "[CPU:— · RAM:— · ↓— ↑—]")
+  eq(flatText(line), "[CPU:— · RAM:— · NET:↓— ↑—]")
   eq(line[2].tone, "muted")
   eq(line[5].tone, "muted")
-  eq(line[7].tone, "muted")
+  eq(line[8].tone, "muted")
   eq(flatText(buildPromptLine({ cpu: null, ram: null })), "[CPU:— · RAM:—]")
 })
 
@@ -600,22 +613,22 @@ test("prompt line keeps brackets balanced and drops fields whole when narrow", (
   eq(flatText(buildPromptLine(view, { width: 8 })), "[CPU:3…]")
 
   const full = { cpu: 37, ram: 62, net: { down: 1.2 * 1024 * 1024, up: 240 * 1024 } }
-  eq(displayWidth(flatText(buildPromptLine(full))), 33)
-  eq(flatText(buildPromptLine(full, { width: 33 })), "[CPU:37% · RAM:62% · ↓1.2M ↑240K]")
-  eq(flatText(buildPromptLine(full, { width: 32 })), "[CPU:37% · RAM:62%]")
+  eq(displayWidth(flatText(buildPromptLine(full))), 37)
+  eq(flatText(buildPromptLine(full, { width: 37 })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]")
+  eq(flatText(buildPromptLine(full, { width: 36 })), "[CPU:37% · RAM:62%]")
   eq(flatText(buildPromptLine(full, { width: 18 })), "[CPU:37%]")
 
   const keyed = { ...full, key: "TH" }
-  eq(flatText(buildPromptLine(keyed)), "[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]")
-  eq(flatText(buildPromptLine(keyed, { width: 40 })), "[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]")
-  eq(flatText(buildPromptLine(keyed, { width: 39 })), "[CPU:37% · RAM:62% · ↓1.2M ↑240K]")
-  eq(flatText(buildPromptLine(keyed, { width: 32 })), "[CPU:37% · RAM:62%]")
+  eq(flatText(buildPromptLine(keyed)), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]")
+  eq(flatText(buildPromptLine(keyed, { width: 44 })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]")
+  eq(flatText(buildPromptLine(keyed, { width: 43 })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]")
+  eq(flatText(buildPromptLine(keyed, { width: 36 })), "[CPU:37% · RAM:62%]")
 
   const stale = buildPromptLine({ ...view, stale: true }, { width: 8 })
   eq(flatText(stale), "! [CPU:]")
   eq(displayWidth(flatText(stale)), 8)
 
-  for (const width of [42, 41, 40, 39, 38, 37, 36, 33, 32, 19, 18, 9, 8]) {
+  for (const width of [46, 45, 44, 43, 37, 36, 33, 32, 19, 18, 9, 8]) {
     for (const candidate of [view, full, keyed]) {
       const flat = flatText(buildPromptLine(candidate, { width }))
       ok(displayWidth(flat) <= width, `line wider than ${width}: ${flat}`)
@@ -623,7 +636,7 @@ test("prompt line keeps brackets balanced and drops fields whole when narrow", (
       ok(flat.endsWith("]"), `missing closing bracket: ${flat}`)
     }
   }
-  eq(STATUS_FIELDS.map((field) => field.label), ["CPU:", "RAM:", undefined, undefined])
+  eq(STATUS_FIELDS.map((field) => field.label), ["CPU:", "RAM:", "NET:", undefined])
 })
 
 test("prompt line never leaks internals", () => {
@@ -770,7 +783,7 @@ test("package wiring matches the CLI plugin conventions", () => {
 
   const ui = fs.readFileSync(path.join(PLUGIN_DIR, "src/ui/line.tsx"), "utf8")
   includes(ui, "buildPromptLine")
-  includes(ui, "props.width ?? 42", "the row must fall back to the width that fits the badge")
+  includes(ui, "props.width ?? 46", "the row must fall back to the width that fits the badge")
   includes(ui, 'textAlign="right"', "the row is right-aligned above the prompt input")
   includes(ui, "subscribe")
   includes(ui, "RGBA.fromInts")

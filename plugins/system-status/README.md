@@ -4,19 +4,19 @@ CPU load, RAM usage, network throughput and the active keyboard language as one
 right-aligned line above the session prompt input (`session.composer.top`):
 
 ```text
-[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]
+[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]
 ```
 
 - `CPU` — overall busy time across all cores (smoothed, 0–100%).
 - `RAM` — used physical memory (0–100%).
-- `↓` / `↑` — receive / send rate of the default-route interface, in bytes per
-  second (`K` = 1024, one decimal below 10). No `NET:` label: the arrows are
-  the label, and the space between them keeps the two numbers readable.
+- `NET` — `↓` / `↑` receive / send rate of the default-route interface, in bytes
+  per second (`K` = 1024, one decimal below 10). The space between the arrows
+  keeps the two numbers readable.
 - ` TH ` — the keyboard language in use (`TH` Thai, `EN` English, …) on a pink
   badge with white text, so the active layout is obvious while typing.
 - Labels are muted, values carry the threshold tone, brackets and ` · `
   separators stay faint. The style matches `go-usage`.
-- Missing values render as `—` (`↓— ↑—` before the first network sample).
+- Missing values render as `—` (`NET:↓— ↑—` before the first network sample).
 - A collector failure prefixes the line with `! ` and keeps the last values.
 
 | Tone | CPU / RAM | Network |
@@ -95,7 +95,7 @@ variables are fallbacks (options win).
 | Option | Env | Default | Meaning |
 | --- | --- | --- | --- |
 | `interval` | `SYSTEM_STATUS_INTERVAL` | `2` | Seconds between samples (clamped 1–10) |
-| `network` | `SYSTEM_STATUS_NETWORK` | `true` | Show `↓ / ↑` throughput; `false` / `0` / `off` hides the field entirely |
+| `network` | `SYSTEM_STATUS_NETWORK` | `true` | Show `NET:↓ / ↑` throughput; `false` / `0` / `off` hides the field entirely |
 | `keyboard` | `SYSTEM_STATUS_KEYBOARD` | `true` | Show the keyboard language badge; `false` / `0` / `off` hides the field and skips the probe |
 | `colorMode` | `SYSTEM_STATUS_COLOR_MODE` | `"mole"` | `mole` (fixed palette) / `theme` |
 | `debug` | `SYSTEM_STATUS_DEBUG=1` | `false` | Log to `system-status-debug.log` |
@@ -107,14 +107,14 @@ Debug logs: `~/.config/opencode/plugins/system-status-debug.log`
 
 | Row shows | Meaning |
 | --- | --- |
-| `[CPU:— · RAM:— · ↓— ↑— ·  — ]` | Before the first sample |
-| `[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]` | Live values, Thai layout |
-| `! [CPU:37% · RAM:62% · ↓1.2M ↑240K ·  EN ]` | Collector error; previous values kept |
-| `[CPU:37% · RAM:62% · ↓1.2M ↑240K]` | `keyboard: false` / unsupported platform, or too narrow |
+| `[CPU:— · RAM:— · NET:↓— ↑— ·  — ]` | Before the first sample |
+| `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]` | Live values, Thai layout |
+| `! [CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  EN ]` | Collector error; previous values kept |
+| `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` | `keyboard: false` / unsupported platform, or too narrow |
 | `[CPU:37% · RAM:62%]` | `network: false`, or too narrow for three fields |
 
-The full line is 40 cells at default width 42; below that the trailing field is
-dropped whole (` TH ` first, then `↓ ↑`, then `RAM`), and the brackets stay
+The full line is 44 cells at default width 46; below that the trailing field is
+dropped whole (` TH ` first, then `NET`, then `RAM`), and the brackets stay
 balanced.
 
 ## Tests

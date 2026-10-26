@@ -1,14 +1,14 @@
 // system-status — view state -> the status line.
 //
-// One narrow row: `[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]`. Labels are muted,
-// values carry the threshold tone, brackets/separators stay faint. The
+// One narrow row: `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]`. Labels are
+// muted, values carry the threshold tone, brackets/separators stay faint. The
 // keyboard language is a padded code on a colored badge — the only segment
 // with a background — so the active layout is obvious while typing. Pure so
 // the harness can assert every state without spawning anything.
 
 import { displayWidth, formatPercent, formatRate, toneForUsage, truncate } from "./format.mjs"
 
-const DEFAULT_WIDTH = 42
+const DEFAULT_WIDTH = 46
 
 /** Network rate -> `↓1.2M ↑240K` (label-free, arrows are the labels). */
 export function formatNetwork(net) {
@@ -30,7 +30,7 @@ function toneForNetwork(net) {
 
 /**
  * Footer fields in display order; `enabled` drops a field that is switched off
- * and a missing `label` means the value stands on its own (NET's arrows, KEY's
+ * and a missing `label` means the value stands on its own (the keyboard
  * language badge). `bg` paints the value segment instead of the terminal
  * background.
  */
@@ -38,6 +38,7 @@ export const STATUS_FIELDS = [
   { label: "CPU:", text: (view) => formatPercent(view.cpu), tone: (view) => toneForUsage(view.cpu, 50, 80) },
   { label: "RAM:", text: (view) => formatPercent(view.ram), tone: (view) => toneForUsage(view.ram, 50, 80) },
   {
+    label: "NET:",
     text: (view) => formatNetwork(view.net),
     tone: (view) => toneForNetwork(view.net),
     enabled: (view) => view.net !== undefined,
@@ -106,7 +107,7 @@ function bracketLine(fields, budget) {
  *             platform has no probe or the field is switched off
  *
  * options:
- *   width — max cells (default 42)
+ *   width — max cells (default 46)
  */
 export function buildPromptLine(view = {}, options = {}) {
   const width = Math.max(8, Math.round(options.width ?? DEFAULT_WIDTH))

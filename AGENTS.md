@@ -108,16 +108,16 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   line caps itself at `DEFAULT_WIDTH`). No commands, no storage, no network
   requests. Entry `tui.ts` → `src/entry.tsx`
   (`Plugin.define({ id: "system-status", setup(ctx) })`).
-- **Line**: `[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]` (40 cells at default
-  width 42). Labels `CPU:`/`RAM:` are muted, values use the threshold tone
-  (50/80); network is label-free — `↓`/`↑` in bytes/s (`K` = 1024, one decimal
+- **Line**: `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]` (44 cells at default
+  width 46). Labels `CPU:`/`RAM:`/`NET:` are muted, values use the threshold
+  tone (50/80); network shows `↓`/`↑` in bytes/s (`K` = 1024, one decimal
   < 10) toned by activity (green when flowing, muted when idle/unknown) —
   brackets and ` · ` separators are faint. The keyboard language is a padded
   badge (` TH `, ` EN `, ` — ` while unknown) with `bg` = `#E91E63` pink and
   white text, the only backgrounded segment, in both color modes. Missing
-  values render `—` (`↓— ↑—` while the first counter baseline is pending);
+  values render `—` (`NET:↓— ↑—` while the first counter baseline is pending);
   collector errors prefix `! `. Clipping drops the trailing field whole
-  (` TH ` badge first, then `↓ ↑`, then `RAM`) and keeps the brackets balanced.
+  (` TH ` badge first, then `NET`, then `RAM`) and keeps the brackets balanced.
   `network: false` / `keyboard: false` remove their field entirely.
 - **Collector** (`src/collector.mjs`, reference-counted): starts on the first
   row subscriber, stops ~5 s after the last one; CPU = `os.cpus()` deltas with

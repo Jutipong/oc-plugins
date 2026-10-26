@@ -80,7 +80,7 @@ export function PromptUsage(props) {
     onCleanup(unsubscribe)
   })
 
-  const line = createMemo(() => buildPromptLine(view(), { width: props.width ?? 42 }))
+  const line = createMemo(() => buildPromptLine(view(), { width: props.width ?? 46 }))
 
   return <LineText line={line()} theme={props.context.theme} colorMode={props.colorMode} />
 }
