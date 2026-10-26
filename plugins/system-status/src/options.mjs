@@ -33,6 +33,7 @@ export function resolveOptions({ options = {}, env = {} } = {}) {
         ? env.SYSTEM_STATUS_COLOR_MODE
         : "mole",
     network: !falsyFlag(options.network ?? env.SYSTEM_STATUS_NETWORK),
+    keyboard: !falsyFlag(options.keyboard ?? env.SYSTEM_STATUS_KEYBOARD),
     debug: options.debug === true || truthyFlag(env.SYSTEM_STATUS_DEBUG),
   }
 }

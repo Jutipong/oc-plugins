@@ -102,29 +102,42 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
 
 ## system-status specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
 
-- **Surface**: prompt footer only — `context.ui.slot({ append: "prompt.footer.status", ... })`.
-  No commands, no storage, no network requests. Entry `tui.ts` → `src/entry.tsx`
+- **Surface**: session prompt row only — `context.ui.slot({ append: "session.composer.top", ... })`,
+  rendered right-aligned (`<text width="100%" textAlign="right">`)
+  (moved off `prompt.footer.status`; the host passes only `{ sessionID }`, so the
+  line caps itself at `DEFAULT_WIDTH`). No commands, no storage, no network
+  requests. Entry `tui.ts` → `src/entry.tsx`
   (`Plugin.define({ id: "system-status", setup(ctx) })`).
-- **Line**: `[CPU:37% · RAM:62% · ↓1.2M ↑240K]` (33 cells at default width 36).
-  Labels `CPU:`/`RAM:` are muted, values use the threshold tone (50/80);
-  network is label-free — `↓`/`↑` in bytes/s (`K` = 1024, one decimal < 10)
-  toned by activity (green when flowing, muted when idle/unknown) — brackets
-  and ` · ` separators are faint. Missing values render `—` (`↓— ↑—` while the
-  first counter baseline is pending); collector errors prefix `! `. Clipping
-  drops the trailing field whole (`↓ ↑` named NET first, then `RAM`) and keeps
-  the brackets balanced. `network: false` removes the field entirely.
+- **Line**: `[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]` (40 cells at default
+  width 42). Labels `CPU:`/`RAM:` are muted, values use the threshold tone
+  (50/80); network is label-free — `↓`/`↑` in bytes/s (`K` = 1024, one decimal
+  < 10) toned by activity (green when flowing, muted when idle/unknown) —
+  brackets and ` · ` separators are faint. The keyboard language is a padded
+  badge (` TH `, ` EN `, ` — ` while unknown) with `bg` = `#E91E63` pink and
+  white text, the only backgrounded segment, in both color modes. Missing
+  values render `—` (`↓— ↑—` while the first counter baseline is pending);
+  collector errors prefix `! `. Clipping drops the trailing field whole
+  (` TH ` badge first, then `↓ ↑`, then `RAM`) and keeps the brackets balanced.
+  `network: false` / `keyboard: false` remove their field entirely.
 - **Collector** (`src/collector.mjs`, reference-counted): starts on the first
-  footer subscriber, stops ~5 s after the last one; CPU = `os.cpus()` deltas with
+  row subscriber, stops ~5 s after the last one; CPU = `os.cpus()` deltas with
   an EMA (0.35) and a denominator floor at the wall-clock window; RAM on macOS =
   `vm_stat` active + wired + compressed (every 5 s), elsewhere `total - freemem`;
   network = default-route interface byte-counter deltas each tick (macOS
   `netstat -ibn` + `route -n get default` cached 60 s, Linux `/proc/net/dev` +
   `/proc/net/route`, else null). A new baseline (start / interface switch)
-  reports no rate for one tick.
+  reports no rate for one tick. Keyboard = `defaults read com.apple.HIToolbox
+  AppleCurrentKeyboardLayoutInputSourceID` on macOS (no Accessibility
+  permission; layout name → short code table in `src/keyboard.mjs`) and a
+  PowerShell + user32 `GetKeyboardLayout` probe of the foreground window on
+  Windows (unverified on real hardware); `KEYBOARD_INTERVAL_MS` = 5 s, other
+  platforms omit the field.
   There is **no temperature source** (macOS 26+ removed the `powermetrics smc`
   sampler); the plugin does not spawn sensor helpers.
 - **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (2 s, 1–10),
   `network` / `SYSTEM_STATUS_NETWORK` (`true`; `false`/`0`/`off` hides it),
+  `keyboard` / `SYSTEM_STATUS_KEYBOARD` (`true`; `false`/`0`/`off` hides it and
+  skips the probe),
   `colorMode` / `SYSTEM_STATUS_COLOR_MODE` (`mole` default / `theme`),
   `debug` / `SYSTEM_STATUS_DEBUG=1`
   (`~/.config/opencode/plugins/system-status-debug.log`, 512 KB truncate).

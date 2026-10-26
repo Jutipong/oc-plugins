@@ -1,17 +1,25 @@
-// system-status — view state -> the prompt-footer line.
+// system-status — view state -> the status line.
 //
-// One narrow row: `[CPU:37% · RAM:62% · ↓1.2M ↑240K]`. Labels are muted,
-// values carry the threshold tone, brackets/separators stay faint. Pure so the
-// harness can assert every state without spawning anything.
+// One narrow row: `[CPU:37% · RAM:62% · ↓1.2M ↑240K ·  TH ]`. Labels are muted,
+// values carry the threshold tone, brackets/separators stay faint. The
+// keyboard language is a padded code on a colored badge — the only segment
+// with a background — so the active layout is obvious while typing. Pure so
+// the harness can assert every state without spawning anything.
 
 import { displayWidth, formatPercent, formatRate, toneForUsage, truncate } from "./format.mjs"
 
-const DEFAULT_WIDTH = 36
+const DEFAULT_WIDTH = 42
 
 /** Network rate -> `↓1.2M ↑240K` (label-free, arrows are the labels). */
 export function formatNetwork(net) {
   if (!net) return "↓— ↑—"
   return `↓${formatRate(net.down)} ↑${formatRate(net.up)}`
+}
+
+/** Keyboard language code -> `"TH"`, or `"—"` when it is still unknown. */
+export function formatKeyboard(code) {
+  const value = typeof code === "string" ? code.trim() : ""
+  return value || "—"
 }
 
 /** Throughput has no meaningful percent ceiling: tone it by activity instead. */
@@ -22,7 +30,9 @@ function toneForNetwork(net) {
 
 /**
  * Footer fields in display order; `enabled` drops a field that is switched off
- * and a missing `label` means the value stands on its own (NET's arrows).
+ * and a missing `label` means the value stands on its own (NET's arrows, KEY's
+ * language badge). `bg` paints the value segment instead of the terminal
+ * background.
  */
 export const STATUS_FIELDS = [
   { label: "CPU:", text: (view) => formatPercent(view.cpu), tone: (view) => toneForUsage(view.cpu, 50, 80) },
@@ -32,10 +42,16 @@ export const STATUS_FIELDS = [
     tone: (view) => toneForNetwork(view.net),
     enabled: (view) => view.net !== undefined,
   },
+  {
+    text: (view) => ` ${formatKeyboard(view.key)} `,
+    tone: () => "onKeyboard",
+    bg: "keyboard",
+    enabled: (view) => view.key !== undefined,
+  },
 ]
 
-function seg(text, tone = "base") {
-  return { text: String(text ?? ""), tone }
+function seg(text, tone = "base", bg) {
+  return bg ? { text: String(text ?? ""), tone, bg } : { text: String(text ?? ""), tone }
 }
 
 function lineWidth(line) {
@@ -80,22 +96,24 @@ function bracketLine(fields, budget) {
 }
 
 /**
- * `prompt.footer.status` line.
+ * `session.composer.top` line.
  *
- * view: { cpu, ram, net, stale, error, updatedAt }
+ * view: { cpu, ram, net, key, stale, error, updatedAt }
  *   cpu/ram — percent 0-100 or null
  *   net     — { down, up } in bytes/second, null while pending,
  *             undefined when the network field is switched off
+ *   key     — keyboard language code, null while pending, undefined when the
+ *             platform has no probe or the field is switched off
  *
  * options:
- *   width — max cells (default 36)
+ *   width — max cells (default 42)
  */
 export function buildPromptLine(view = {}, options = {}) {
   const width = Math.max(8, Math.round(options.width ?? DEFAULT_WIDTH))
   const fields = STATUS_FIELDS.filter((field) => (field.enabled ? field.enabled(view) : true)).map(
-    ({ label, text, tone }) => {
+    ({ label, text, tone, bg }) => {
       const parts = label ? [seg(label, "muted")] : []
-      parts.push(seg(text(view), tone(view)))
+      parts.push(seg(text(view), tone(view), bg))
       return parts
     },
   )

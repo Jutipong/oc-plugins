@@ -8,4 +8,6 @@ export const MOLE_PALETTE = {
   accent: [199, 159, 215], // #C79FD7
   border: [64, 64, 64], // #404040
   muted: [115, 115, 115], // #737373
+  keyboard: [233, 30, 99], // #E91E63 — background of the keyboard badge
+  onKeyboard: [255, 255, 255], // white text on the badge
 }

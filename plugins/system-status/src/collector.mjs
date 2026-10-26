@@ -1,10 +1,11 @@
-// system-status — CPU / RAM / network collector.
+// system-status — CPU / RAM / network / keyboard collector.
 //
 // CPU comes from `os.cpus()` deltas (no processes). RAM uses `vm_stat` on
 // macOS (active + wired + compressed) and `os.freemem()` elsewhere. Network
 // throughput is the byte-counter delta of the default-route interface
 // (`netstat -ibn` + `route -n get default` on macOS, `/proc/net/dev` +
-// `/proc/net/route` on Linux).
+// `/proc/net/route` on Linux). The keyboard language is the HIToolbox input
+// source on macOS and the foreground-window layout on Windows.
 //
 // The collector is reference-counted: it starts with the first subscriber
 // (the prompt-footer component) and stops a few seconds after the last one,
@@ -14,15 +15,25 @@ import os from "node:os"
 import fs from "node:fs"
 import { execFile } from "node:child_process"
 import { ema, toNumber } from "./format.mjs"
+import {
+  MAC_INPUT_SOURCE_ARGS,
+  MAC_INPUT_SOURCE_BIN,
+  WINDOWS_POWERSHELL_ARGS,
+  parseMacInputSource,
+  parseWindowsLanguage,
+  windowsPowerShellPath,
+} from "./keyboard.mjs"
 
 export const DEFAULT_INTERVAL_MS = 2000
 export const RAM_INTERVAL_MS = 5000
+export const KEYBOARD_INTERVAL_MS = 5000
 export const IDLE_STOP_MS = 5000
 
 const BIN = {
   vmStat: "/usr/bin/vm_stat",
   netstat: "/usr/sbin/netstat",
   route: "/sbin/route",
+  defaults: MAC_INPUT_SOURCE_BIN,
 }
 
 const PROC_NET_DEV = "/proc/net/dev"
@@ -176,6 +187,7 @@ function errorText(error) {
 export function createCollector({
   intervalMs = DEFAULT_INTERVAL_MS,
   network = true,
+  keyboard = true,
   logger,
   platform = process.platform,
   exec = defaultExec,
@@ -184,12 +196,16 @@ export function createCollector({
   cpus = () => os.cpus(),
   totalmem = () => os.totalmem(),
   freemem = () => os.freemem(),
+  env = globalThis.process?.env ?? {},
 } = {}) {
   const tickMs = Math.max(500, toNumber(intervalMs) ?? DEFAULT_INTERVAL_MS)
   const netEnabled = network !== false
+  const keySupported = platform === "darwin" || platform === "win32"
+  const keyEnabled = keySupported && keyboard !== false
 
   let snapshot = { cpu: null, ram: null, stale: false, error: null, updatedAt: 0 }
   if (netEnabled) snapshot.net = null
+  if (keyEnabled) snapshot.key = null
   const subscribers = new Set()
   let previousCpus = cpus()
   let previousAt = now()
@@ -200,6 +216,9 @@ export function createCollector({
   let netValue = null
   let netBaseline = null
   let netInFlight = null
+  let keyValue = null
+  let keyAt = 0
+  let keyInFlight = null
   let defaultIface = null
   let defaultIfaceAt = 0
   let timer = null
@@ -326,6 +345,37 @@ export function createCollector({
     return netInFlight
   }
 
+  async function readKeyboard() {
+    if (platform === "darwin") {
+      const result = await exec(BIN.defaults, MAC_INPUT_SOURCE_ARGS, { timeout: 1500 })
+      return result.ok ? parseMacInputSource(result.stdout) : null
+    }
+    if (platform === "win32") {
+      const result = await exec(windowsPowerShellPath(env), WINDOWS_POWERSHELL_ARGS, { timeout: 4000 })
+      return result.ok ? parseWindowsLanguage(result.stdout) : null
+    }
+    return null
+  }
+
+  /** Throttled by its own cadence: a layout switch is not time critical. */
+  function refreshKeyboard() {
+    if (!keyEnabled || keyInFlight || disposed) return keyInFlight
+    keyAt = now()
+    keyInFlight = (async () => {
+      try {
+        const value = await readKeyboard()
+        if (value != null) keyValue = value
+      } catch (error) {
+        logger?.write?.(`keyboard failed: ${errorText(error)}`)
+      } finally {
+        keyInFlight = null
+        snapshot = { ...snapshot, key: keyValue }
+        publish()
+      }
+    })()
+    return keyInFlight
+  }
+
   async function tick() {
     timer = null
     if (!running || disposed) return
@@ -344,6 +394,7 @@ export function createCollector({
     publish()
 
     if (netEnabled) void refreshNet()
+    if (keyEnabled && (keyAt === 0 || at - keyAt >= KEYBOARD_INTERVAL_MS)) void refreshKeyboard()
     if (!ramInFlight && (ramAt === 0 || at - ramAt >= RAM_INTERVAL_MS)) void refreshRam()
     if (running && !disposed) timer = setTimeout(() => void tick(), tickMs)
   }
