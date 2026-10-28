@@ -102,23 +102,21 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
 
 ## system-status specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
 
-- **Surface**: session prompt row only — `context.ui.slot({ append: "session.composer.top", ... })`,
-  rendered right-aligned (`<text width="100%" textAlign="right">`)
-  (moved off `prompt.footer.status`; the host passes only `{ sessionID }`, so the
-  line caps itself at `DEFAULT_WIDTH`). No commands, no storage, no network
+- **Surface**: prompt footer only — `context.ui.slot({ append: "prompt.footer.status", ... })`
+  beside `go-usage`, a plain `<text>` row (no right alignment, no frame) that
+  caps itself at `DEFAULT_WIDTH` 40. No commands, no storage, no network
   requests. Entry `tui.ts` → `src/entry.tsx`
   (`Plugin.define({ id: "system-status", setup(ctx) })`).
-- **Line**: `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]` (44 cells at default
-  width 46). Labels `CPU:`/`RAM:`/`NET:` are muted, values use the threshold
+- **Line**: `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` (37 cells at default
+  width 40). Labels `CPU:`/`RAM:`/`NET:` are muted, values use the threshold
   tone (50/80); network shows `↓`/`↑` in bytes/s (`K` = 1024, one decimal
   < 10) toned by activity (green when flowing, muted when idle/unknown) —
-  brackets and ` · ` separators are faint. The keyboard language is a padded
-  badge (` TH `, ` EN `, ` — ` while unknown) with `bg` = `#E91E63` pink and
-  white text, the only backgrounded segment, in both color modes. Missing
-  values render `—` (`NET:↓— ↑—` while the first counter baseline is pending);
-  collector errors prefix `! `. Clipping drops the trailing field whole
-  (` TH ` badge first, then `NET`, then `RAM`) and keeps the brackets balanced.
-  `network: false` / `keyboard: false` remove their field entirely.
+  brackets and ` · ` separators are faint. Missing values render `—`
+  (`NET:↓— ↑—` while the first counter baseline is pending); collector errors
+  prefix `! `. Clipping drops the trailing field whole (`NET`, then `RAM`) and
+  keeps the brackets balanced. `network: false` removes the field. There is
+  **no keyboard-language field**: the probe cost a PowerShell spawn (~3 s CPU,
+  73 MB) per sample on Windows and was removed on both platforms.
 - **Collector** (`src/collector.mjs`, reference-counted): starts on the first
   row subscriber, stops ~5 s after the last one; CPU = `os.cpus()` deltas with
   an EMA (0.35) and a denominator floor at the wall-clock window; RAM on macOS =
@@ -127,29 +125,22 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   `netstat -ibn` + `route -n get default` cached 60 s, Linux `/proc/net/dev` +
   `/proc/net/route`, Windows `netstat -e` — whole IP stack, no per-interface
   split). A new baseline (start / interface switch) reports no rate for one
-  tick. Keyboard = `defaults read com.apple.HIToolbox
-  AppleCurrentKeyboardLayoutInputSourceID` on macOS (no Accessibility
-  permission; layout name → short code table in `src/keyboard.mjs`) and a
-  PowerShell + user32 `GetKeyboardLayout` probe of the foreground window on
-  Windows (verified 2026-10-28 on Win11 26100; the script ships as
-  `-EncodedCommand` base64/UTF-16LE because `execFile` has no shell to quote
-  the C# `"` and `$`), on the same tick cadence as NET — but a spawn costs
-  2.5–3.5 s, so the in-flight guard paces the Windows probe to 2–4 s and the
-  last code stays visible between samples. Other platforms omit the field.
+  tick. `publish()` compares a rounded signature (cpu / ram / net / stale) and
+  skips subscribers when nothing a user can see changed, so the row re-renders
+  once per changed sample instead of once per probe.
   There is **no temperature source** (macOS 26+ removed the `powermetrics smc`
   sampler); the plugin does not spawn sensor helpers.
-- **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (2 s, 1–10),
-  `network` / `SYSTEM_STATUS_NETWORK` (`true`; `false`/`0`/`off` hides it),
-  `keyboard` / `SYSTEM_STATUS_KEYBOARD` (`true`; `false`/`0`/`off` hides it and
-  skips the probe),
+- **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (5 s, 1–10),
+  `network` / `SYSTEM_STATUS_NETWORK` (`true`; `false`/`0`/`off` hides it and
+  skips the subprocess),
   `colorMode` / `SYSTEM_STATUS_COLOR_MODE` (`mole` default / `theme`),
   `debug` / `SYSTEM_STATUS_DEBUG=1`
   (`~/.config/opencode/plugins/system-status-debug.log`, 512 KB truncate).
 - **Tests**: `cd plugins/system-status && node test/harness.mjs` (offline, no
   processes; must print `ALL TESTS PASSED`). Covers CPU delta math, `vm_stat`,
-  `netstat` / `netstat -e` / `/proc` parsing, rate math, clipping, the Windows
-  `-EncodedCommand` payload and its per-tick probe, lifecycle with injected
-  commands, install helper and packaging.
+  `netstat` / `netstat -e` / `/proc` parsing, rate math, clipping, publish
+  de-duplication, lifecycle with injected commands, install helper and
+  packaging.
 
 ## go-usage specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
 

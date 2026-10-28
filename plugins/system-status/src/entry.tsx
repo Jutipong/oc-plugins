@@ -12,17 +12,16 @@ export default Plugin.define({
     const options = resolveOptions({ options: context.options ?? {}, env })
     const log = createLogger(options.debug)
 
-    log.write(`setup interval=${options.intervalSeconds}s net=${options.network} kb=${options.keyboard}`)
+    log.write(`setup interval=${options.intervalSeconds}s net=${options.network}`)
 
     const collector = createCollector({
       intervalMs: options.intervalSeconds * 1000,
       network: options.network,
-      keyboard: options.keyboard,
       logger: log,
     })
 
     const dispose = context.ui.slot({
-      append: "session.composer.top",
+      append: "prompt.footer.status",
       render: () => <PromptUsage context={context} controller={collector} colorMode={options.colorMode} />,
     })
 

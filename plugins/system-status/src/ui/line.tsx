@@ -10,7 +10,6 @@ const MOLE_RGBA = Object.fromEntries(
 
 /** Map a semantic model tone to a resolved theme token, or Mole's fixed palette. */
 function toneColor(theme, tone, colorMode = "mole") {
-  if (tone === "onKeyboard") return MOLE_RGBA.onKeyboard
   if (colorMode === "mole") {
     if (tone === "faint" || tone === "muted") return MOLE_RGBA.muted
     if (tone === "border") return MOLE_RGBA.border
@@ -37,29 +36,13 @@ function toneColor(theme, tone, colorMode = "mole") {
   }
 }
 
-/**
- * Segment background. The badge keeps Mole's pink in both color modes: themes
- * do not guarantee a pink hue token, and a missing one would render an
- * invisible box.
- */
-function bgColor(bg) {
-  return bg === "keyboard" ? MOLE_RGBA.keyboard : undefined
-}
-
-/** Single-line renderer for the session status row, right-aligned (no frame, no bars). */
+/** Single-line renderer for the prompt footer (no frame, no bars). */
 export function LineText(props) {
   return (
-    <text fg={props.theme?.text?.base} width="100%" textAlign="right">
+    <text fg={props.theme?.text?.base}>
       <For each={props.line}>
         {(segment) => (
-          <span
-            style={{
-              fg: toneColor(props.theme, segment.tone, props.colorMode),
-              bg: bgColor(segment.bg),
-            }}
-          >
-            {segment.text}
-          </span>
+          <span style={{ fg: toneColor(props.theme, segment.tone, props.colorMode) }}>{segment.text}</span>
         )}
       </For>
     </text>
@@ -67,7 +50,7 @@ export function LineText(props) {
 }
 
 /**
- * `session.composer.top` contribution, aligned to the right edge of the row.
+ * `prompt.footer.status` contribution, next to go-usage.
  *
  * Subscribes to the reference-counted collector: sampling starts when the row
  * mounts and stops shortly after the session closes.
@@ -80,7 +63,7 @@ export function PromptUsage(props) {
     onCleanup(unsubscribe)
   })
 
-  const line = createMemo(() => buildPromptLine(view(), { width: props.width ?? 46 }))
+  const line = createMemo(() => buildPromptLine(view(), { width: props.width ?? 40 }))
 
   return <LineText line={line()} theme={props.context.theme} colorMode={props.colorMode} />
 }

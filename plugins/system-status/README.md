@@ -1,10 +1,10 @@
 # system-status
 
-CPU load, RAM usage, network throughput and the active keyboard language as one
-right-aligned line above the session prompt input (`session.composer.top`):
+CPU load, RAM usage and network throughput as one line in the prompt footer
+(`prompt.footer.status`), next to `go-usage`:
 
 ```text
-[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]
+[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]
 ```
 
 - `CPU` — overall busy time across all cores (smoothed, 0–100%).
@@ -12,8 +12,6 @@ right-aligned line above the session prompt input (`session.composer.top`):
 - `NET` — `↓` / `↑` receive / send rate of the default-route interface, in bytes
   per second (`K` = 1024, one decimal below 10). The space between the arrows
   keeps the two numbers readable.
-- ` TH ` — the keyboard language in use (`TH` Thai, `EN` English, …) on a pink
-  badge with white text, so the active layout is obvious while typing.
 - Labels are muted, values carry the threshold tone, brackets and ` · `
   separators stay faint. The style matches `go-usage`.
 - Missing values render as `—` (`NET:↓— ↑—` before the first network sample).
@@ -26,42 +24,30 @@ right-aligned line above the session prompt input (`session.composer.top`):
 | red | ≥ 80% | — |
 | muted | unknown | idle / unknown |
 
-The keyboard badge is the one fixed color in the line: `#E91E63` background,
-white text (`keyboard` / `onKeyboard` in `src/colors.mjs`). Both color modes use
-it — themes do not guarantee a pink hue token. `—` on the badge means the
-language is not known yet.
-
 ## Where the numbers come from
 
 | Value | Source | Cadence |
 | --- | --- | --- |
-| CPU | `os.cpus()` time deltas, EMA-smoothed | every `interval` (2 s) |
+| CPU | `os.cpus()` time deltas, EMA-smoothed | every `interval` (5 s) |
 | RAM | macOS: `vm_stat` active + wired + compressed; Windows/other: `total - freemem` | every 5 s |
-| Network | default-route interface byte counters: macOS `netstat -ibn` + `route -n get default`; Linux `/proc/net/dev` + `/proc/net/route`; Windows `netstat -e` (whole IP stack, no per-interface split); other platforms render `—` | every `interval` (2 s) |
-| Keyboard | macOS: `defaults read com.apple.HIToolbox AppleCurrentKeyboardLayoutInputSourceID`; Windows: PowerShell + user32 `GetKeyboardLayout` of the foreground window; other platforms hide the field | every `interval` (2 s); on Windows a probe takes so long that the in-flight guard spaces them (2–4 s) |
+| Network | default-route interface byte counters: macOS `netstat -ibn` + `route -n get default`; Linux `/proc/net/dev` + `/proc/net/route`; Windows `netstat -e` (whole IP stack, no per-interface split); other platforms render `—` | every `interval` (5 s) |
 
-The macOS probe reads the HIToolbox preference, so it needs no Accessibility
-permission and follows every layout change (⌃Space / 🌐). Layout names map to a
-short code (`ABC`/`US`/`British` → `EN`, `Thai` → `TH`, `French` → `FR`, …);
-a layout outside that table shows the first three letters of its name (`SWI`)
-rather than a guessed language.
-
-The Windows probe starts `powershell.exe` and compiles its P/Invoke helper on
-every sample, which costs ~2.5–3.5 s rather than milliseconds. It shares the
-CPU cadence, but a probe is still running when the next tick fires, so the
-in-flight guard spaces samples to every 2–4 s; the last language stays
-on screen in between. Windows `netstat -e` only reports the totals of the whole
-IP stack, so the `NET` field there sums every adapter (loopback included)
-instead of following the default route.
+Windows `netstat -e` only reports the totals of the whole IP stack, so the `NET`
+field there sums every adapter (loopback included) instead of following the
+default route.
 
 Rates are the delta between two samples, so the first sample after start or
 after an interface change (Wi-Fi ⇄ VPN) shows `↓— ↑—`. The default-route
 lookup is cached for 60 s; if the routed interface is missing from the
 counters the busiest non-loopback interface is used.
 
-Sampling is reference-counted: it starts when the row mounts and stops a few
-seconds after it unmounts, so nothing runs while you are on the home screen. No
-network requests, no storage, no long-lived processes.
+Sampling is deliberately cheap: CPU and RAM are read in-process, the one
+subprocess (`netstat`) is a native ~90 ms call, and a snapshot is only
+published when a rendered value changes, so the row re-renders no more than
+once per changed sample. Sampling is reference-counted: it starts when the row
+mounts and stops a few seconds after it unmounts, so nothing runs while you are
+on the home screen. No network requests, no storage, no long-lived processes,
+no PowerShell.
 
 ## Install
 
@@ -84,15 +70,14 @@ The script backs up `cli.json` and preserves other plugin entries:
   "plugins": [
     {
       "package": "file:///Users/js.dev/SourceCode/oc-plugins/plugins/system-status",
-      "options": { "interval": 2 }
+      "options": { "interval": 5 }
     }
   ]
 }
 ```
 
-Then reload OpenCode (`/reload`) — the line appears above the prompt input of
-every session, and the footer keeps whatever other plugins contribute (such as
-`go-usage`).
+Then reload OpenCode (`/reload`) — the line joins `go-usage` in the footer of
+every session.
 
 ## Options and environment
 
@@ -101,9 +86,8 @@ variables are fallbacks (options win).
 
 | Option | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `interval` | `SYSTEM_STATUS_INTERVAL` | `2` | Seconds between samples (clamped 1–10) |
-| `network` | `SYSTEM_STATUS_NETWORK` | `true` | Show `NET:↓ / ↑` throughput; `false` / `0` / `off` hides the field entirely |
-| `keyboard` | `SYSTEM_STATUS_KEYBOARD` | `true` | Show the keyboard language badge; `false` / `0` / `off` hides the field and skips the probe |
+| `interval` | `SYSTEM_STATUS_INTERVAL` | `5` | Seconds between samples (clamped 1–10) |
+| `network` | `SYSTEM_STATUS_NETWORK` | `true` | Show `NET:↓ / ↑` throughput; `false` / `0` / `off` hides the field and skips the subprocess entirely |
 | `colorMode` | `SYSTEM_STATUS_COLOR_MODE` | `"mole"` | `mole` (fixed palette) / `theme` |
 | `debug` | `SYSTEM_STATUS_DEBUG=1` | `false` | Log to `system-status-debug.log` |
 
@@ -114,15 +98,13 @@ Debug logs: `~/.config/opencode/plugins/system-status-debug.log`
 
 | Row shows | Meaning |
 | --- | --- |
-| `[CPU:— · RAM:— · NET:↓— ↑— ·  — ]` | Before the first sample |
-| `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]` | Live values, Thai layout |
-| `! [CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  EN ]` | Collector error; previous values kept |
-| `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` | `keyboard: false` / unsupported platform, or too narrow |
+| `[CPU:— · RAM:— · NET:↓— ↑—]` | Before the first sample |
+| `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` | Live values |
+| `! [CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` | Collector error; previous values kept |
 | `[CPU:37% · RAM:62%]` | `network: false`, or too narrow for three fields |
 
-The full line is 44 cells at default width 46; below that the trailing field is
-dropped whole (` TH ` first, then `NET`, then `RAM`), and the brackets stay
-balanced.
+The full line is 37 cells at default width 40; below that the trailing field is
+dropped whole (`NET` first, then `RAM`), and the brackets stay balanced.
 
 ## Tests
 
@@ -131,20 +113,19 @@ cd plugins/system-status
 node test/harness.mjs   # or: bun run test
 ```
 
-Offline only: CPU delta math, `vm_stat` / `netstat` / `netstat -e` / `/proc` parsing, rate
-math, threshold tones, missing values, stale prefix, width clipping, the
-macOS/Windows keyboard parsers and the Windows `-EncodedCommand` payload,
-option/env resolution, install helper patching, collector lifecycle with
-injected commands, packaging and source hygiene. Must print
-`ALL TESTS PASSED (N assertions)`.
+Offline only: CPU delta math, `vm_stat` / `netstat` / `netstat -e` / `/proc`
+parsing, rate math, threshold tones, missing values, stale prefix, width
+clipping, publish de-duplication, option/env resolution, install helper
+patching, collector lifecycle with injected commands, packaging and source
+hygiene. Must print `ALL TESTS PASSED (N assertions)`.
 
 ## Notes
 
 - Standalone: it does not import or depend on the other plugins; the visual
   style (and the Mole palette) matches the other CLI plugins.
-- The row belongs to `session.composer.top`, so it only exists inside a session
-  and the prompt footer stays free for `go-usage`.
-- The keyboard badge keeps its pink background in `colorMode: "theme"` too;
-  change it in `src/colors.mjs` (`keyboard` / `onKeyboard`).
-- macOS reports the current *input source*: with an IME (Japanese, Chinese) the
-  value can stay on the base layout while the IME composes text.
+- The row belongs to `prompt.footer.status`, the same slot as `go-usage`; the
+  host decides how the two contributions share the footer.
+- There is no keyboard-language field: probing the active layout needs
+  `user32` on Windows (a PowerShell spawn that cost seconds and kept a core
+  busy) and a HIToolbox read on macOS, which is not worth the price for a
+  footer badge.

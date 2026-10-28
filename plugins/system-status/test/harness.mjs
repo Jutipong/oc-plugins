@@ -34,13 +34,11 @@ import {
   sampleCpu,
   windowsNetstatPath,
 } from "../src/collector.mjs"
-import { STATUS_FIELDS, buildPromptLine, formatKeyboard, formatNetwork } from "../src/model.mjs"
 import {
-  codeForLayoutName,
-  parseMacInputSource,
-  parseWindowsLanguage,
-  windowsPowerShellPath,
-} from "../src/keyboard.mjs"
+  STATUS_FIELDS,
+  buildPromptLine,
+  formatNetwork,
+} from "../src/model.mjs"
 import { resolveOptions } from "../src/options.mjs"
 import { createLogger, logPath } from "../src/log.mjs"
 import { MOLE_PALETTE } from "../src/colors.mjs"
@@ -162,53 +160,6 @@ test("rate formatting auto-scales bytes and stays within four cells", () => {
   for (const value of [0, 999, 1000, 1023, 1024, 5000, 1e6, 5e8, 3e12, 1e15]) {
     ok(displayWidth(formatRate(value)) <= 4, `too wide: ${formatRate(value)}`)
   }
-})
-
-// ---------------------------------------------------------------------------
-// keyboard language
-// ---------------------------------------------------------------------------
-
-test("macOS input sources map to short language codes", () => {
-  eq(parseMacInputSource("com.apple.keylayout.Thai\n"), "TH")
-  eq(parseMacInputSource("com.apple.keylayout.ThaiPatachote"), "TH")
-  eq(parseMacInputSource("com.apple.keylayout.ABC"), "EN")
-  eq(parseMacInputSource("com.apple.keylayout.US"), "EN")
-  eq(parseMacInputSource("com.apple.keylayout.USExtended"), "EN")
-  eq(parseMacInputSource("com.apple.keylayout.British"), "EN")
-  eq(parseMacInputSource("  com.apple.keylayout.French  "), "FR")
-  eq(parseMacInputSource("com.apple.keylayout.SwissGerman"), "DE")
-  eq(parseMacInputSource("com.apple.keylayout.Russian"), "RU")
-  eq(parseMacInputSource("com.apple.keylayout.Korean"), "KO")
-  eq(parseMacInputSource("com.apple.inputmethod.Kotoeri.RomajiTyping.Japanese"), "JA")
-  eq(parseMacInputSource("com.apple.inputmethod.SCIM.ITABC"), "ZH")
-  eq(parseMacInputSource("com.apple.inputmethod.TCIM.Cangjie"), "ZH")
-  eq(parseMacInputSource("com.apple.inputmethod.Thai"), "TH")
-})
-
-test("unknown layouts derive a code instead of guessing a language", () => {
-  eq(codeForLayoutName("Klingon"), "KLI")
-  eq(parseMacInputSource("com.apple.keylayout.Klingon"), "KLI")
-  eq(parseMacInputSource("com.apple.keylayout.US-Intl"), "USI")
-  eq(parseMacInputSource("com.apple.keylayout."), null)
-  eq(parseMacInputSource(""), null)
-  eq(parseMacInputSource("garbage"), null)
-  eq(parseMacInputSource("Error: Could not find key"), null)
-})
-
-test("Windows culture names map to short language codes", () => {
-  eq(parseWindowsLanguage("th\r\n"), "TH")
-  eq(parseWindowsLanguage("en-US"), "EN")
-  eq(parseWindowsLanguage("ja"), "JA")
-  eq(parseWindowsLanguage("fil"), "FIL")
-  eq(parseWindowsLanguage("warning: something\r\nth\n"), "TH")
-  eq(parseWindowsLanguage(""), null)
-  eq(parseWindowsLanguage("error 1"), null)
-  eq(parseWindowsLanguage("th TH"), null)
-  eq(
-    windowsPowerShellPath({ SystemRoot: "C:\\Windows" }),
-    "C:\\Windows\\System32\\WindowsPowerShell\\v1.0\\powershell.exe",
-  )
-  eq(windowsPowerShellPath({}), "powershell")
 })
 
 // ---------------------------------------------------------------------------
@@ -428,122 +379,28 @@ await testAsync("collector leaves NET out when the network field is switched off
   )
 })
 
-await testAsync("collector publishes the keyboard language and probes on every tick", async () => {
-  const calls = []
+await testAsync("collector does not republish an unchanged row", async () => {
   const collector = createCollector({
     intervalMs: 500,
     network: false,
-    platform: "darwin",
-    exec: async (command, args = []) => {
-      calls.push([command, ...args].join(" "))
-      if (command.endsWith("defaults")) return { ok: true, stdout: "com.apple.keylayout.Thai\n" }
-      return { ok: false, stdout: "" }
-    },
-    cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
+    cpus: () => [{ times: { user: 0, nice: 0, sys: 0, idle: 1000, irq: 0 } }],
     totalmem: () => 100 * 1024 * 1024,
+    freemem: () => 50 * 1024 * 1024,
     logger: { write() {} },
   })
-  const seen = []
-  const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
-  await delay(1200)
+  let publishes = 0
+  const unsubscribe = collector.subscribe(() => {
+    publishes += 1
+  })
+  await delay(700) // the first sample (and the RAM read) settles
+  const settled = publishes
+  await delay(1000) // ~2 more ticks with identical values
   unsubscribe()
   collector.dispose()
 
-  eq(seen[0].key, null, "the first snapshot reports an unknown keyboard language")
-  eq(seen.at(-1).key, "TH")
-  const probes = calls.filter((command) => command.includes("AppleCurrentKeyboardLayoutInputSourceID"))
-  ok(probes.length >= 2, `the probe follows the CPU cadence: ${probes.join(", ")}`)
-  includes(probes[0], "/usr/bin/defaults read com.apple.HIToolbox")
-})
-
-await testAsync("collector keeps the last keyboard language when the probe fails", async () => {
-  let call = 0
-  const collector = createCollector({
-    intervalMs: 500,
-    network: false,
-    platform: "darwin",
-    exec: async () => {
-      call += 1
-      return call === 1
-        ? { ok: true, stdout: "com.apple.keylayout.ABC" }
-        : { ok: false, stdout: "", error: new Error("boom") }
-    },
-    cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
-    totalmem: () => 100 * 1024 * 1024,
-    logger: { write() {} },
-  })
-  const seen = []
-  const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
-  await delay(900)
-  unsubscribe()
-  collector.dispose()
-
-  eq(seen.at(-1).key, "EN", "a failed probe must keep the previous language")
-})
-
-await testAsync("collector leaves the keyboard field out when it is unsupported or off", async () => {
-  const run = async (options) => {
-    const calls = []
-    const collector = createCollector({
-      intervalMs: 500,
-      network: false,
-      exec: async (command) => {
-        calls.push(command)
-        return { ok: true, stdout: "com.apple.keylayout.Thai" }
-      },
-      cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
-      totalmem: () => 100 * 1024 * 1024,
-      logger: { write() {} },
-      ...options,
-    })
-    const seen = []
-    const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
-    await delay(700)
-    unsubscribe()
-    collector.dispose()
-    return { latest: seen.at(-1), calls }
-  }
-
-  const linux = await run({ platform: "linux" })
-  ok(!("key" in linux.latest), "linux has no keyboard probe")
-  ok(!linux.calls.some((command) => command.includes("defaults")), "no probe outside macOS/Windows")
-
-  const disabled = await run({ platform: "darwin", keyboard: false })
-  ok(!("key" in disabled.latest), "the keyboard field must be absent when disabled")
-  ok(!disabled.calls.some((command) => command.includes("defaults")), "no probe when the field is off")
-})
-
-await testAsync("collector probes Windows through powershell", async () => {
-  const calls = []
-  const collector = createCollector({
-    intervalMs: 500,
-    network: false,
-    platform: "win32",
-    env: { SystemRoot: "C:\\Windows" },
-    exec: async (command, args = []) => {
-      calls.push([command, ...args].join(" "))
-      return { ok: true, stdout: "th\r\n" }
-    },
-    cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
-    totalmem: () => 100 * 1024 * 1024,
-    logger: { write() {} },
-  })
-  const seen = []
-  const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
-  await delay(700)
-  unsubscribe()
-  collector.dispose()
-
-  eq(seen.at(-1).key, "TH")
-  ok(calls.length >= 2, `the probe follows the CPU cadence: ${calls.join(", ")}`)
-  includes(calls.join(" "), "WindowsPowerShell\\v1.0\\powershell.exe")
-  const encoded = calls.find((call) => call.includes("-EncodedCommand "))
-  ok(encoded, `the probe must pass -EncodedCommand: ${calls.join(", ")}`)
-  // `-EncodedCommand` keeps the C# quotes and the `$` variables intact.
-  const script = Buffer.from(encoded.split("-EncodedCommand ")[1], "base64").toString("utf16le")
-  includes(script, "GetKeyboardLayout")
-  includes(script, '"user32.dll"')
-  includes(script, "$ErrorActionPreference='Stop'; Add-Type", "statements must be separated by `;`")
+  // Identical snapshots would redraw the footer row for nothing.
+  eq(publishes, settled, `an unchanged row re-rendered ${publishes - settled} extra times`)
+  ok(settled > 0, "the collector published nothing")
 })
 
 await testAsync("collector samples NET on Windows from `netstat -e`", async () => {
@@ -551,7 +408,6 @@ await testAsync("collector samples NET on Windows from `netstat -e`", async () =
   const calls = []
   const collector = createCollector({
     intervalMs: 500,
-    keyboard: false,
     platform: "win32",
     env: { SystemRoot: "C:\\Windows" },
     exec: async (command, args = []) => {
@@ -642,39 +498,6 @@ test("prompt line drops NET entirely when the field is switched off", () => {
   eq(flatText(buildPromptLine({ cpu: 37, ram: 62, net: undefined })), "[CPU:37% · RAM:62%]")
 })
 
-test("prompt line appends the keyboard language as a padded badge", () => {
-  const base = { cpu: 37, ram: 62, net: { down: 1.2 * 1024 * 1024, up: 240 * 1024 } }
-  const thai = buildPromptLine({ ...base, key: "TH" })
-  eq(flatText(thai), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]")
-  eq(displayWidth(flatText(thai)), 44)
-  eq(thai.map((segment) => segment.text), [
-    "[",
-    "CPU:",
-    "37%",
-    " · ",
-    "RAM:",
-    "62%",
-    " · ",
-    "NET:",
-    "↓1.2M ↑240K",
-    " · ",
-    " TH ",
-    "]",
-  ])
-  eq(thai[10], { text: " TH ", tone: "onKeyboard", bg: "keyboard" })
-  eq(thai[8].bg, undefined, "only the keyboard badge carries a background")
-
-  eq(flatText(buildPromptLine({ ...base, key: "EN" })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  EN ]")
-  eq(flatText(buildPromptLine({ ...base, key: null })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  — ]")
-  eq(flatText(buildPromptLine(base)), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]")
-
-  eq(formatKeyboard("TH"), "TH")
-  eq(formatKeyboard(" TH "), "TH")
-  eq(formatKeyboard(null), "—")
-  eq(formatKeyboard(undefined), "—")
-  eq(formatKeyboard(""), "—")
-})
-
 test("prompt line uses muted em dashes for unknown values", () => {
   const line = buildPromptLine({ cpu: null, ram: null, net: null })
   eq(flatText(line), "[CPU:— · RAM:— · NET:↓— ↑—]")
@@ -704,25 +527,19 @@ test("prompt line keeps brackets balanced and drops fields whole when narrow", (
   eq(flatText(buildPromptLine(full, { width: 36 })), "[CPU:37% · RAM:62%]")
   eq(flatText(buildPromptLine(full, { width: 18 })), "[CPU:37%]")
 
-  const keyed = { ...full, key: "TH" }
-  eq(flatText(buildPromptLine(keyed)), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]")
-  eq(flatText(buildPromptLine(keyed, { width: 44 })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K ·  TH ]")
-  eq(flatText(buildPromptLine(keyed, { width: 43 })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]")
-  eq(flatText(buildPromptLine(keyed, { width: 36 })), "[CPU:37% · RAM:62%]")
-
   const stale = buildPromptLine({ ...view, stale: true }, { width: 8 })
   eq(flatText(stale), "! [CPU:]")
   eq(displayWidth(flatText(stale)), 8)
 
-  for (const width of [46, 45, 44, 43, 37, 36, 33, 32, 19, 18, 9, 8]) {
-    for (const candidate of [view, full, keyed]) {
+  for (const width of [40, 39, 38, 37, 36, 33, 32, 19, 18, 9, 8]) {
+    for (const candidate of [view, full]) {
       const flat = flatText(buildPromptLine(candidate, { width }))
       ok(displayWidth(flat) <= width, `line wider than ${width}: ${flat}`)
       ok(flat.startsWith("[") || flat.startsWith("! ["), `missing opening bracket: ${flat}`)
       ok(flat.endsWith("]"), `missing closing bracket: ${flat}`)
     }
   }
-  eq(STATUS_FIELDS.map((field) => field.label), ["CPU:", "RAM:", "NET:", undefined])
+  eq(STATUS_FIELDS.map((field) => field.label), ["CPU:", "RAM:", "NET:"])
 })
 
 test("prompt line never leaks internals", () => {
@@ -747,11 +564,11 @@ test("prompt line never leaks internals", () => {
 // ---------------------------------------------------------------------------
 
 test("option and env resolution uses SYSTEM_STATUS_*", () => {
-  eq(resolveOptions({}).intervalSeconds, 2)
-  eq(resolveOptions({ options: { interval: 5 } }).intervalSeconds, 5)
+  eq(resolveOptions({}).intervalSeconds, 5)
+  eq(resolveOptions({ options: { interval: 2 } }).intervalSeconds, 2)
   eq(resolveOptions({ env: { SYSTEM_STATUS_INTERVAL: "4" } }).intervalSeconds, 4)
   eq(resolveOptions({ options: { interval: 5 }, env: { SYSTEM_STATUS_INTERVAL: "4" } }).intervalSeconds, 5)
-  eq(resolveOptions({ options: { interval: 0 } }).intervalSeconds, 2)
+  eq(resolveOptions({ options: { interval: 0 } }).intervalSeconds, 5)
   eq(resolveOptions({ options: { interval: 99 } }).intervalSeconds, 10)
   eq(resolveOptions({}).colorMode, "mole")
   eq(resolveOptions({ options: { colorMode: "theme" } }).colorMode, "theme")
@@ -764,11 +581,6 @@ test("option and env resolution uses SYSTEM_STATUS_*", () => {
   eq(resolveOptions({ env: { SYSTEM_STATUS_NETWORK: "off" } }).network, false)
   eq(resolveOptions({ options: { network: true }, env: { SYSTEM_STATUS_NETWORK: "0" } }).network, true)
   eq(resolveOptions({ options: { network: false }, env: { SYSTEM_STATUS_NETWORK: "1" } }).network, false)
-  eq(resolveOptions({}).keyboard, true)
-  eq(resolveOptions({ options: { keyboard: false } }).keyboard, false)
-  eq(resolveOptions({ env: { SYSTEM_STATUS_KEYBOARD: "0" } }).keyboard, false)
-  eq(resolveOptions({ env: { SYSTEM_STATUS_KEYBOARD: "off" } }).keyboard, false)
-  eq(resolveOptions({ options: { keyboard: true }, env: { SYSTEM_STATUS_KEYBOARD: "0" } }).keyboard, true)
   eq(resolveOptions({}).debug, false)
   eq(resolveOptions({ options: { debug: true } }).debug, true)
   eq(resolveOptions({ env: { SYSTEM_STATUS_DEBUG: "1" } }).debug, true)
@@ -791,8 +603,6 @@ test("mole palette matches the other CLI plugins", () => {
   eq(MOLE_PALETTE.warning, [255, 169, 77])
   eq(MOLE_PALETTE.error, [255, 95, 95])
   eq(MOLE_PALETTE.muted, [115, 115, 115])
-  eq(MOLE_PALETTE.keyboard, [233, 30, 99])
-  eq(MOLE_PALETTE.onKeyboard, [255, 255, 255])
 })
 
 // ---------------------------------------------------------------------------
@@ -861,16 +671,16 @@ test("package wiring matches the CLI plugin conventions", () => {
 
   const entry = fs.readFileSync(path.join(PLUGIN_DIR, "src/entry.tsx"), "utf8")
   includes(entry, 'id: "system-status"')
-  includes(entry, "session.composer.top")
-  excludes(entry, "prompt.footer.status", "the status line moved above the prompt input")
-  excludes(entry, "sidebar.content", "the plugin owns the composer row only")
+  includes(entry, "prompt.footer.status")
+  excludes(entry, "session.composer.top", "the row sits in the prompt footer beside go-usage")
+  excludes(entry, "sidebar.content", "the plugin owns one footer row only")
   includes(entry, "createCollector")
   includes(entry, "collector.dispose()")
 
   const ui = fs.readFileSync(path.join(PLUGIN_DIR, "src/ui/line.tsx"), "utf8")
   includes(ui, "buildPromptLine")
-  includes(ui, "props.width ?? 46", "the row must fall back to the width that fits the badge")
-  includes(ui, 'textAlign="right"', "the row is right-aligned above the prompt input")
+  includes(ui, "props.width ?? 40", "the row must fall back to the width that fits its fields")
+  excludes(ui, 'textAlign="right"', "the footer row flows after go-usage instead of hugging the right edge")
   includes(ui, "subscribe")
   includes(ui, "RGBA.fromInts")
 
@@ -880,16 +690,13 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(collector, "netstat")
   includes(collector, "netstat.exe", "Windows network throughput comes from `netstat -e`")
   includes(collector, "/proc/net/dev")
-  excludes(collector, "KEYBOARD_INTERVAL_MS", "the keyboard probe follows the CPU cadence")
+  excludes(collector, "keyboard", "the keyboard probe is gone: it cost a PowerShell spawn per sample")
+  excludes(collector, "powershell")
   excludes(collector, "powermetrics")
   excludes(collector, "tempCmd")
   excludes(collector, "MSAcpi")
   excludes(collector, "temperature")
-
-  const keyboard = fs.readFileSync(path.join(PLUGIN_DIR, "src/keyboard.mjs"), "utf8")
-  includes(keyboard, "AppleCurrentKeyboardLayoutInputSourceID")
-  includes(keyboard, "GetKeyboardLayout")
-  excludes(keyboard, "osascript", "the probe must not need Accessibility permission")
+  ok(!fs.existsSync(path.join(PLUGIN_DIR, "src/keyboard.mjs")), "the keyboard probe module must stay removed")
 })
 
 test("the plugin stays standalone (no imports from sibling plugins)", () => {

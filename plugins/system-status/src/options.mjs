@@ -2,7 +2,7 @@
 
 import { clampNumber } from "./format.mjs"
 
-export const DEFAULT_INTERVAL_SEC = 2
+export const DEFAULT_INTERVAL_SEC = 5
 export const MIN_INTERVAL_SEC = 1
 export const MAX_INTERVAL_SEC = 10
 export const COLOR_MODES = ["mole", "theme"]
@@ -33,7 +33,6 @@ export function resolveOptions({ options = {}, env = {} } = {}) {
         ? env.SYSTEM_STATUS_COLOR_MODE
         : "mole",
     network: !falsyFlag(options.network ?? env.SYSTEM_STATUS_NETWORK),
-    keyboard: !falsyFlag(options.keyboard ?? env.SYSTEM_STATUS_KEYBOARD),
     debug: options.debug === true || truthyFlag(env.SYSTEM_STATUS_DEBUG),
   }
 }
