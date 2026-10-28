@@ -2,7 +2,7 @@
 
 import { clampNumber } from "./format.mjs"
 
-export const DEFAULT_INTERVAL_SEC = 5
+export const DEFAULT_INTERVAL_SEC = 2
 export const MIN_INTERVAL_SEC = 1
 export const MAX_INTERVAL_SEC = 10
 export const COLOR_MODES = ["mole", "theme"]

@@ -118,19 +118,22 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   **no keyboard-language field**: the probe cost a PowerShell spawn (~3 s CPU,
   73 MB) per sample on Windows and was removed on both platforms.
 - **Collector** (`src/collector.mjs`, reference-counted): starts on the first
-  row subscriber, stops ~5 s after the last one; CPU = `os.cpus()` deltas with
-  an EMA (0.35) and a denominator floor at the wall-clock window; RAM on macOS =
-  `vm_stat` active + wired + compressed (every 5 s), elsewhere `total - freemem`;
-  network = default-route interface byte-counter deltas each tick (macOS
-  `netstat -ibn` + `route -n get default` cached 60 s, Linux `/proc/net/dev` +
-  `/proc/net/route`, Windows `netstat -e` — whole IP stack, no per-interface
-  split). A new baseline (start / interface switch) reports no rate for one
-  tick. `publish()` compares a rounded signature (cpu / ram / net / stale) and
-  skips subscribers when nothing a user can see changed, so the row re-renders
-  once per changed sample instead of once per probe.
+  row subscriber, stops ~5 s after the last one. One self-scheduling pass per
+  tick (the next timer starts after the pass ends, so a slow probe never
+  stacks): CPU = `os.cpus()` deltas with an EMA (0.35) and a denominator floor
+  at the wall-clock window; RAM on macOS = `vm_stat` active + wired + compressed
+  / elsewhere `total - freemem`, sampled every `RAM_INTERVAL_MS` (5 s) on both
+  platforms and reused in between; network = default-route interface
+  byte-counter deltas every tick (macOS `netstat -ibn` + `route -n get default`
+  cached 60 s, Linux `/proc/net/dev` + `/proc/net/route`, Windows `netstat -e`
+  — whole IP stack, no per-interface split). A new baseline (start / interface
+  switch) reports no rate for one tick. The pass publishes **one** snapshot,
+  and `publish()` compares a rounded signature (cpu / ram / net / stale) first,
+  so the row redraws at most once per tick and not at all when nothing a user
+  can see changed.
   There is **no temperature source** (macOS 26+ removed the `powermetrics smc`
   sampler); the plugin does not spawn sensor helpers.
-- **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (5 s, 1–10),
+- **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (2 s, 1–10),
   `network` / `SYSTEM_STATUS_NETWORK` (`true`; `false`/`0`/`off` hides it and
   skips the subprocess),
   `colorMode` / `SYSTEM_STATUS_COLOR_MODE` (`mole` default / `theme`),
@@ -138,9 +141,9 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   (`~/.config/opencode/plugins/system-status-debug.log`, 512 KB truncate).
 - **Tests**: `cd plugins/system-status && node test/harness.mjs` (offline, no
   processes; must print `ALL TESTS PASSED`). Covers CPU delta math, `vm_stat`,
-  `netstat` / `netstat -e` / `/proc` parsing, rate math, clipping, publish
-  de-duplication, lifecycle with injected commands, install helper and
-  packaging.
+  `netstat` / `netstat -e` / `/proc` parsing, rate math, clipping, one publish
+  per tick (and none for an unchanged row), the 5 s RAM cadence, lifecycle with
+  injected commands, install helper and packaging.
 
 ## go-usage specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
 

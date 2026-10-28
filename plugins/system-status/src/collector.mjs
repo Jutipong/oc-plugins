@@ -9,16 +9,16 @@
 //
 // The collector is reference-counted: it starts with the first subscriber
 // (the footer component) and stops a few seconds after the last one, so
-// nothing runs while the footer is not mounted. Sampling is deliberately
-// cheap: no PowerShell, no long-lived process, and a snapshot is only
-// published when a rendered value actually changes.
+// nothing runs while the footer is not mounted. Each tick samples CPU, the
+// probes and RAM (every RAM_INTERVAL_MS), then publishes one snapshot, so the
+// row re-renders at most once per tick and only when a visible value changed.
 
 import os from "node:os"
 import fs from "node:fs"
 import { execFile } from "node:child_process"
 import { ema, toNumber } from "./format.mjs"
 
-export const DEFAULT_INTERVAL_MS = 5000
+export const DEFAULT_INTERVAL_MS = 2000
 export const RAM_INTERVAL_MS = 5000
 export const IDLE_STOP_MS = 5000
 
@@ -237,10 +237,8 @@ export function createCollector({
   let usageEma = null
   let ramValue = null
   let ramAt = 0
-  let ramInFlight = null
   let netValue = null
   let netBaseline = null
-  let netInFlight = null
   let defaultIface = null
   let defaultIfaceAt = 0
   let timer = null
@@ -276,24 +274,18 @@ export function createCollector({
     return Math.max(0, Math.min(100, ((total - free) / total) * 100))
   }
 
-  function refreshRam() {
-    if (ramInFlight) return ramInFlight
-    ramInFlight = (async () => {
-      try {
-        const value = await readRam()
-        if (value != null) {
-          ramValue = value
-          ramAt = now()
-        }
-      } catch (error) {
-        logger?.write?.(`ram failed: ${errorText(error)}`)
-      } finally {
-        ramInFlight = null
-        snapshot = { ...snapshot, ram: ramValue }
-        publish()
+  /** RAM changes slowly: sample it every RAM_INTERVAL_MS and reuse the value in between. */
+  async function sampleRam(at) {
+    if (ramAt !== 0 && at - ramAt < RAM_INTERVAL_MS) return
+    try {
+      const value = await readRam()
+      if (value != null) {
+        ramValue = value
+        ramAt = at
       }
-    })()
-    return ramInFlight
+    } catch (error) {
+      logger?.write?.(`ram failed: ${errorText(error)}`)
+    }
   }
 
   async function readDefaultInterface() {
@@ -355,49 +347,52 @@ export function createCollector({
     return null
   }
 
-  function refreshNet() {
-    if (netInFlight || disposed) return netInFlight
-    netInFlight = (async () => {
-      try {
-        const counters = await readNetCounters()
-        const at = now()
-        if (counters) {
-          // A new baseline (first sample, interface switch) yields no rate yet.
-          const previous = netBaseline && netBaseline.iface === counters.iface ? netBaseline : null
-          const rate = previous ? rateBetween(previous, counters, at - previous.at) : null
-          netValue = rate ?? null
-          netBaseline = { ...counters, at }
-        }
-      } catch (error) {
-        logger?.write?.(`net failed: ${errorText(error)}`)
-      } finally {
-        netInFlight = null
-        snapshot = { ...snapshot, net: netValue }
-        publish()
-      }
-    })()
-    return netInFlight
+  /** Counter delta of this tick; a new baseline yields no rate yet. */
+  async function sampleNet(at) {
+    try {
+      const counters = await readNetCounters()
+      if (!counters) return
+      const previous = netBaseline && netBaseline.iface === counters.iface ? netBaseline : null
+      const rate = previous ? rateBetween(previous, counters, at - previous.at) : null
+      netValue = rate ?? null
+      netBaseline = { ...counters, at }
+    } catch (error) {
+      logger?.write?.(`net failed: ${errorText(error)}`)
+    }
   }
 
+  /**
+   * One pass per tick: CPU, then the probes, then one snapshot and one publish,
+   * so the row re-renders at most once per sample. The timer starts only after
+   * the pass finishes, so a slow probe can never stack a second pass.
+   */
   async function tick() {
     timer = null
     if (!running || disposed) return
     const at = now()
+    let stale = false
+    let error = null
     try {
       const current = cpus()
       const { usage } = sampleCpu(previousCpus, current, at - previousAt)
       previousCpus = current
       previousAt = at
       if (usage != null) usageEma = ema(usageEma, usage, 0.35)
-      snapshot = { ...snapshot, cpu: usageEma, stale: false, error: null, updatedAt: at }
-    } catch (error) {
-      snapshot = { ...snapshot, stale: true, error: errorText(error), updatedAt: at }
-      logger?.write?.(`cpu failed: ${errorText(error)}`)
+    } catch (caught) {
+      stale = true
+      error = errorText(caught)
+      logger?.write?.(`cpu failed: ${error}`)
     }
-    publish()
 
-    if (netEnabled) void refreshNet()
-    if (!ramInFlight && (ramAt === 0 || at - ramAt >= RAM_INTERVAL_MS)) void refreshRam()
+    if (netEnabled) await sampleNet(at)
+    if (!disposed) await sampleRam(at)
+    // Stopped or disposed while the probes were running: publish nothing.
+    if (!running || disposed) return
+
+    const next = { ...snapshot, cpu: usageEma, ram: ramValue, stale, error, updatedAt: at }
+    if (netEnabled) next.net = netValue
+    snapshot = next
+    publish()
     if (running && !disposed) timer = setTimeout(() => void tick(), tickMs)
   }
 

@@ -28,9 +28,9 @@ CPU load, RAM usage and network throughput as one line in the prompt footer
 
 | Value | Source | Cadence |
 | --- | --- | --- |
-| CPU | `os.cpus()` time deltas, EMA-smoothed | every `interval` (5 s) |
-| RAM | macOS: `vm_stat` active + wired + compressed; Windows/other: `total - freemem` | every 5 s |
-| Network | default-route interface byte counters: macOS `netstat -ibn` + `route -n get default`; Linux `/proc/net/dev` + `/proc/net/route`; Windows `netstat -e` (whole IP stack, no per-interface split); other platforms render `—` | every `interval` (5 s) |
+| CPU | `os.cpus()` time deltas, EMA-smoothed | every `interval` (2 s) |
+| RAM | macOS: `vm_stat` active + wired + compressed; Windows/other: `total - freemem` | every 5 s, value reused in between |
+| Network | default-route interface byte counters: macOS `netstat -ibn` + `route -n get default`; Linux `/proc/net/dev` + `/proc/net/route`; Windows `netstat -e` (whole IP stack, no per-interface split); other platforms render `—` | every `interval` (2 s) |
 
 Windows `netstat -e` only reports the totals of the whole IP stack, so the `NET`
 field there sums every adapter (loopback included) instead of following the
@@ -41,13 +41,16 @@ after an interface change (Wi-Fi ⇄ VPN) shows `↓— ↑—`. The default-rou
 lookup is cached for 60 s; if the routed interface is missing from the
 counters the busiest non-loopback interface is used.
 
-Sampling is deliberately cheap: CPU and RAM are read in-process, the one
-subprocess (`netstat`) is a native ~90 ms call, and a snapshot is only
-published when a rendered value changes, so the row re-renders no more than
-once per changed sample. Sampling is reference-counted: it starts when the row
-mounts and stops a few seconds after it unmounts, so nothing runs while you are
-on the home screen. No network requests, no storage, no long-lived processes,
-no PowerShell.
+Each tick is one pass: CPU, then the probes, then a single snapshot, so the row
+re-renders at most once per tick and only when a visible value changed. RAM is
+read every 5 s on both platforms and its last value is reused in between, which
+costs no extra render. The next tick is scheduled after the pass finishes, so a
+slow probe can never stack a second pass.
+
+Sampling is reference-counted: it starts when the row mounts and stops a few
+seconds after it unmounts, so nothing runs while you are on the home screen. No
+network requests, no storage, no long-lived processes, no PowerShell: the only
+subprocess is the native `netstat`, about 90 ms per sample.
 
 ## Install
 
@@ -70,7 +73,7 @@ The script backs up `cli.json` and preserves other plugin entries:
   "plugins": [
     {
       "package": "file:///Users/js.dev/SourceCode/oc-plugins/plugins/system-status",
-      "options": { "interval": 5 }
+      "options": { "interval": 2 }
     }
   ]
 }
@@ -86,7 +89,7 @@ variables are fallbacks (options win).
 
 | Option | Env | Default | Meaning |
 | --- | --- | --- | --- |
-| `interval` | `SYSTEM_STATUS_INTERVAL` | `5` | Seconds between samples (clamped 1–10) |
+| `interval` | `SYSTEM_STATUS_INTERVAL` | `2` | Seconds between samples (clamped 1–10) |
 | `network` | `SYSTEM_STATUS_NETWORK` | `true` | Show `NET:↓ / ↑` throughput; `false` / `0` / `off` hides the field and skips the subprocess entirely |
 | `colorMode` | `SYSTEM_STATUS_COLOR_MODE` | `"mole"` | `mole` (fixed palette) / `theme` |
 | `debug` | `SYSTEM_STATUS_DEBUG=1` | `false` | Log to `system-status-debug.log` |
@@ -115,9 +118,10 @@ node test/harness.mjs   # or: bun run test
 
 Offline only: CPU delta math, `vm_stat` / `netstat` / `netstat -e` / `/proc`
 parsing, rate math, threshold tones, missing values, stale prefix, width
-clipping, publish de-duplication, option/env resolution, install helper
-patching, collector lifecycle with injected commands, packaging and source
-hygiene. Must print `ALL TESTS PASSED (N assertions)`.
+clipping, one publish per tick and none for an unchanged row, the 5 s RAM
+cadence, option/env resolution, install helper patching, collector lifecycle
+with injected commands, packaging and source hygiene. Must print
+`ALL TESTS PASSED (N assertions)`.
 
 ## Notes
 

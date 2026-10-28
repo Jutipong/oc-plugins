@@ -403,6 +403,87 @@ await testAsync("collector does not republish an unchanged row", async () => {
   ok(settled > 0, "the collector published nothing")
 })
 
+await testAsync("one tick publishes CPU, RAM and NET together", async () => {
+  let netStep = 0
+  const collector = createCollector({
+    intervalMs: 500,
+    platform: "darwin",
+    exec: async (command) => {
+      if (command.endsWith("vm_stat")) {
+        return {
+          ok: true,
+          stdout: [
+            "Mach Virtual Memory Statistics: (page size of 16384 bytes)",
+            "Pages active: 1000.",
+            "Pages wired down: 300.",
+            "Pages occupied by compressor: 200.",
+          ].join("\n"),
+        }
+      }
+      if (command.endsWith("netstat")) {
+        netStep += 1
+        const inbound = 100_000 + netStep * 200_000
+        const outbound = 50_000 + netStep * 100_000
+        return { ok: true, stdout: `en0 1500 <Link#11> aa:bb:cc:dd:ee:ff 0 0 ${inbound} 0 0 ${outbound} 0` }
+      }
+      if (command.endsWith("route")) return { ok: true, stdout: "  interface: en0" }
+      return { ok: false, stdout: "" }
+    },
+    cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
+    totalmem: () => 100 * 1024 * 1024,
+    logger: { write() {} },
+  })
+  const seen = []
+  const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
+  await delay(1200)
+  unsubscribe()
+  collector.dispose()
+
+  const latest = seen.at(-1)
+  ok(
+    typeof latest.cpu === "number" && typeof latest.ram === "number" && latest.net,
+    `incomplete snapshot: ${JSON.stringify(latest)}`,
+  )
+  // Every delivery is a whole tick: no half-updated view with a stale sibling.
+  for (const snapshot of seen) {
+    ok("cpu" in snapshot && "ram" in snapshot && "net" in snapshot, `partial: ${JSON.stringify(snapshot)}`)
+  }
+})
+
+await testAsync("RAM is sampled every 5 s even when the tick runs faster", async () => {
+  const run = async (options) => {
+    const calls = []
+    const freemem = () => {
+      calls.push("freemem")
+      return 50 * 1024 * 1024
+    }
+    const collector = createCollector({
+      intervalMs: 500,
+      network: false,
+      freemem,
+      totalmem: () => 100 * 1024 * 1024,
+      cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
+      exec: async (command) => {
+        calls.push(command)
+        return { ok: true, stdout: "Mach Virtual Memory Statistics: (page size of 16384 bytes)\nPages active: 10." }
+      },
+      logger: { write() {} },
+      ...options,
+    })
+    const unsubscribe = collector.subscribe(() => {})
+    await delay(1600) // ~4 ticks
+    unsubscribe()
+    collector.dispose()
+    return calls
+  }
+
+  const linux = await run({ platform: "linux" })
+  eq(linux.filter((call) => call === "freemem").length, 1, "RAM must not be read on every tick")
+
+  const mac = await run({ platform: "darwin" })
+  eq(mac.filter((call) => call.endsWith("vm_stat")).length, 1, "vm_stat must be spawned once per 5 s")
+})
+
 await testAsync("collector samples NET on Windows from `netstat -e`", async () => {
   let step = 0
   const calls = []
@@ -564,11 +645,11 @@ test("prompt line never leaks internals", () => {
 // ---------------------------------------------------------------------------
 
 test("option and env resolution uses SYSTEM_STATUS_*", () => {
-  eq(resolveOptions({}).intervalSeconds, 5)
-  eq(resolveOptions({ options: { interval: 2 } }).intervalSeconds, 2)
+  eq(resolveOptions({}).intervalSeconds, 2)
+  eq(resolveOptions({ options: { interval: 5 } }).intervalSeconds, 5)
   eq(resolveOptions({ env: { SYSTEM_STATUS_INTERVAL: "4" } }).intervalSeconds, 4)
   eq(resolveOptions({ options: { interval: 5 }, env: { SYSTEM_STATUS_INTERVAL: "4" } }).intervalSeconds, 5)
-  eq(resolveOptions({ options: { interval: 0 } }).intervalSeconds, 5)
+  eq(resolveOptions({ options: { interval: 0 } }).intervalSeconds, 2)
   eq(resolveOptions({ options: { interval: 99 } }).intervalSeconds, 10)
   eq(resolveOptions({}).colorMode, "mole")
   eq(resolveOptions({ options: { colorMode: "theme" } }).colorMode, "theme")
