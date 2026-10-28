@@ -19,11 +19,25 @@ export const MAC_INPUT_SOURCE_ARGS = [
 /** Windows: foreground-window HKL -> the two-letter language name of its LCID. */
 export const WINDOWS_INPUT_SOURCE_SCRIPT = [
   "$ErrorActionPreference='Stop'",
-  "Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class OpenCodeKb{[DllImport(\"user32.dll\")]public static extern IntPtr GetForegroundWindow();[DllImport(\"user32.dll\")]public static extern uint GetWindowThreadProcessId(IntPtr hWnd,IntPtr thread);[DllImport(\"user32.dll\")]public static extern IntPtr GetKeyboardLayout(uint thread);}'",
+  `Add-Type -TypeDefinition 'using System;using System.Runtime.InteropServices;public class OpenCodeKb{[DllImport("user32.dll")]public static extern IntPtr GetForegroundWindow();[DllImport("user32.dll")]public static extern uint GetWindowThreadProcessId(IntPtr hWnd,IntPtr thread);[DllImport("user32.dll")]public static extern IntPtr GetKeyboardLayout(uint thread);}'`,
   "try{$hkl=[OpenCodeKb]::GetKeyboardLayout([OpenCodeKb]::GetWindowThreadProcessId([OpenCodeKb]::GetForegroundWindow(),[IntPtr]::Zero));$id=[int]($hkl.ToInt64() -band 0xFFFF);[System.Globalization.CultureInfo]::GetCultureInfo($id).TwoLetterISOLanguageName}catch{(Get-Culture).TwoLetterISOLanguageName}",
-].join(" ")
+].join("; ")
 
-export const WINDOWS_POWERSHELL_ARGS = ["-NoProfile", "-NonInteractive", "-Command", WINDOWS_INPUT_SOURCE_SCRIPT]
+/**
+ * `-EncodedCommand` takes base64 of UTF-16LE text and skips the argument
+ * parser, so the `"` of the C# attribute and the `$` of the script survive
+ * `execFile` (which has no shell to quote for).
+ */
+export function windowsEncodedCommand(script) {
+  return Buffer.from(String(script ?? ""), "utf16le").toString("base64")
+}
+
+export const WINDOWS_POWERSHELL_ARGS = [
+  "-NoProfile",
+  "-NonInteractive",
+  "-EncodedCommand",
+  windowsEncodedCommand(WINDOWS_INPUT_SOURCE_SCRIPT),
+]
 
 /** Absolute PowerShell path on Windows, else the bare name for PATH lookup. */
 export function windowsPowerShellPath(env = {}) {

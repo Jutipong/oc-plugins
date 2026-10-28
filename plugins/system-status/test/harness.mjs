@@ -25,12 +25,14 @@ import {
   createCollector,
   parseDefaultRouteInterface,
   parseNetstatCounters,
+  parseNetstatE,
   parseProcNetDev,
   parseProcRoute,
   parseVmStatUsed,
   pickActiveInterface,
   rateBetween,
   sampleCpu,
+  windowsNetstatPath,
 } from "../src/collector.mjs"
 import { STATUS_FIELDS, buildPromptLine, formatKeyboard, formatNetwork } from "../src/model.mjs"
 import {
@@ -291,6 +293,36 @@ test("parseProcNetDev and parseProcRoute handle the Linux pair", () => {
   eq(parseProcRoute("Iface\tDestination"), null)
 })
 
+test("parseNetstatE reads the byte row of a Windows `netstat -e`", () => {
+  const text = [
+    "Interface Statistics",
+    "",
+    "                           Received            Sent",
+    "",
+    "Bytes                    3800121078       554717562",
+    "Unicast packets             8195261         3673791",
+    "Non-unicast packets          360885            5978",
+    "Discards                          0               0",
+    "Errors                            0              15",
+    "Unknown protocols                 0",
+  ].join("\r\n")
+  eq(parseNetstatE(text), { in: 3800121078, out: 554717562 })
+  // Thai Windows localizes the labels; the shape of the byte row does not change.
+  eq(parseNetstatE(["สถิติอินเทอร์เฟซ", "", "รับ ส่ง", "", "ไบต์  10  20", "ทิ้ง  0  0"].join("\r\n")), {
+    in: 10,
+    out: 20,
+  })
+  eq(parseNetstatE(""), null)
+  eq(parseNetstatE("Interface Statistics\r\n\r\nReceived Sent"), null)
+  eq(parseNetstatE("0 0 0"), null, "a row without a label is not the byte counter")
+})
+
+test("windowsNetstatPath prefers System32 and falls back to PATH", () => {
+  eq(windowsNetstatPath({ SystemRoot: "C:\\Windows" }), "C:\\Windows\\System32\\netstat.exe")
+  eq(windowsNetstatPath({ windir: "D:\\Win" }), "D:\\Win\\System32\\netstat.exe")
+  eq(windowsNetstatPath({}), "netstat")
+})
+
 test("pickActiveInterface skips loopback, bridges and dead links", () => {
   eq(
     pickActiveInterface({
@@ -503,8 +535,62 @@ await testAsync("collector probes Windows through powershell", async () => {
   collector.dispose()
 
   eq(seen.at(-1).key, "TH")
+  ok(calls.length >= 2, `the probe follows the CPU cadence: ${calls.join(", ")}`)
   includes(calls.join(" "), "WindowsPowerShell\\v1.0\\powershell.exe")
-  includes(calls.join(" "), "GetKeyboardLayout")
+  const encoded = calls.find((call) => call.includes("-EncodedCommand "))
+  ok(encoded, `the probe must pass -EncodedCommand: ${calls.join(", ")}`)
+  // `-EncodedCommand` keeps the C# quotes and the `$` variables intact.
+  const script = Buffer.from(encoded.split("-EncodedCommand ")[1], "base64").toString("utf16le")
+  includes(script, "GetKeyboardLayout")
+  includes(script, '"user32.dll"')
+  includes(script, "$ErrorActionPreference='Stop'; Add-Type", "statements must be separated by `;`")
+})
+
+await testAsync("collector samples NET on Windows from `netstat -e`", async () => {
+  let step = 0
+  const calls = []
+  const collector = createCollector({
+    intervalMs: 500,
+    keyboard: false,
+    platform: "win32",
+    env: { SystemRoot: "C:\\Windows" },
+    exec: async (command, args = []) => {
+      calls.push([command, ...args].join(" "))
+      if (command.endsWith("netstat.exe")) {
+        step += 1
+        const inbound = 1_000_000 + step * 500_000
+        const outbound = 200_000 + step * 100_000
+        return {
+          ok: true,
+          stdout: [
+            "Interface Statistics",
+            "",
+            "                           Received            Sent",
+            "",
+            `Bytes                    ${inbound}       ${outbound}`,
+            "Discards                          0               0",
+          ].join("\r\n"),
+        }
+      }
+      return { ok: false, stdout: "" }
+    },
+    cpus: () => [{ times: { user: 1, nice: 0, sys: 1, idle: 1, irq: 0 } }],
+    totalmem: () => 100 * 1024 * 1024,
+    logger: { write() {} },
+  })
+  const seen = []
+  const unsubscribe = collector.subscribe((snapshot) => seen.push(snapshot))
+  await delay(1200)
+  unsubscribe()
+  collector.dispose()
+
+  const net = seen.at(-1).net
+  ok(net && net.down > 0 && net.up > 0, `net: ${JSON.stringify(net)}`)
+  includes(calls[0], "System32\\netstat.exe -e")
+  ok(
+    !calls.some((call) => /route|powershell/i.test(call)),
+    `Windows must not spawn extra probes: ${calls.join(", ")}`,
+  )
 })
 
 // ---------------------------------------------------------------------------
@@ -792,6 +878,7 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(collector, "/usr/bin/vm_stat")
   includes(collector, "IDLE_STOP_MS")
   includes(collector, "netstat")
+  includes(collector, "netstat.exe", "Windows network throughput comes from `netstat -e`")
   includes(collector, "/proc/net/dev")
   excludes(collector, "KEYBOARD_INTERVAL_MS", "the keyboard probe follows the CPU cadence")
   excludes(collector, "powermetrics")

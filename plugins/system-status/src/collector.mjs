@@ -4,8 +4,10 @@
 // macOS (active + wired + compressed) and `os.freemem()` elsewhere. Network
 // throughput is the byte-counter delta of the default-route interface
 // (`netstat -ibn` + `route -n get default` on macOS, `/proc/net/dev` +
-// `/proc/net/route` on Linux). The keyboard language is the HIToolbox input
-// source on macOS and the foreground-window layout on Windows.
+// `/proc/net/route` on Linux) or of the whole IP stack on Windows
+// (`netstat -e`, which has no per-interface breakdown). The keyboard language
+// is the HIToolbox input source on macOS and the foreground-window layout on
+// Windows.
 //
 // The collector is reference-counted: it starts with the first subscriber
 // (the prompt-footer component) and stops a few seconds after the last one,
@@ -125,6 +127,30 @@ export function parseNetstatCounters(text) {
 export function parseDefaultRouteInterface(text) {
   const match = String(text ?? "").match(/^\s*interface:\s*(\S+)/m)
   return match ? match[1] : null
+}
+
+/**
+ * `netstat -e` output -> system-wide { in, out } in bytes, or null.
+ *
+ * Windows localizes the row labels, so the byte row is found by shape: the
+ * first line that carries a label and two counters ("Discards 0 0" and its
+ * kin follow it, and the header rows have no counters at all).
+ */
+export function parseNetstatE(text) {
+  for (const line of String(text ?? "").split(/\r?\n/)) {
+    const tokens = line.trim().split(/\s+/)
+    if (tokens.length !== 3) continue
+    if (/^\d+$/.test(tokens[0])) continue
+    if (!/^\d+$/.test(tokens[1]) || !/^\d+$/.test(tokens[2])) continue
+    return { in: Number(tokens[1]), out: Number(tokens[2]) }
+  }
+  return null
+}
+
+/** Absolute `netstat.exe` on Windows, else the bare name for PATH lookup. */
+export function windowsNetstatPath(env = {}) {
+  const root = env.SystemRoot ?? env.windir
+  return root ? `${root}\\System32\\netstat.exe` : "netstat"
 }
 
 /** `/proc/net/dev` -> { <iface>: { in, out } } in bytes. */
@@ -313,6 +339,14 @@ export function createCollector({
         const iface = await resolveInterface(counters)
         return iface && counters[iface] ? { iface, ...counters[iface] } : null
       }
+      if (platform === "win32") {
+        // `netstat -e` only reports the totals of the whole IP stack, so there
+        // is no interface to resolve and the rate follows every adapter.
+        const result = await exec(windowsNetstatPath(env), ["-e"], { timeout: 1500 })
+        if (!result.ok) return null
+        const counters = parseNetstatE(result.stdout)
+        return counters ? { iface: "system", ...counters } : null
+      }
     } catch (error) {
       logger?.write?.(`net failed: ${errorText(error)}`)
     }
@@ -355,7 +389,7 @@ export function createCollector({
     return null
   }
 
-  /** Runs on every tick like NET; the in-flight guard keeps a slow probe from stacking. */
+  /** Runs on every tick like NET; the in-flight guard keeps a slow Windows probe from stacking. */
   function refreshKeyboard() {
     if (!keyEnabled || keyInFlight || disposed) return keyInFlight
     keyInFlight = (async () => {

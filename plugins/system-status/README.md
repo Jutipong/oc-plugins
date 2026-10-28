@@ -37,15 +37,22 @@ language is not known yet.
 | --- | --- | --- |
 | CPU | `os.cpus()` time deltas, EMA-smoothed | every `interval` (2 s) |
 | RAM | macOS: `vm_stat` active + wired + compressed; Windows/other: `total - freemem` | every 5 s |
-| Network | default-route interface byte counters: macOS `netstat -ibn` + `route -n get default`; Linux `/proc/net/dev` + `/proc/net/route`; other platforms render `—` | every `interval` (2 s) |
-| Keyboard | macOS: `defaults read com.apple.HIToolbox AppleCurrentKeyboardLayoutInputSourceID`; Windows: PowerShell + user32 `GetKeyboardLayout` of the foreground window; other platforms hide the field | every `interval` (2 s) |
+| Network | default-route interface byte counters: macOS `netstat -ibn` + `route -n get default`; Linux `/proc/net/dev` + `/proc/net/route`; Windows `netstat -e` (whole IP stack, no per-interface split); other platforms render `—` | every `interval` (2 s) |
+| Keyboard | macOS: `defaults read com.apple.HIToolbox AppleCurrentKeyboardLayoutInputSourceID`; Windows: PowerShell + user32 `GetKeyboardLayout` of the foreground window; other platforms hide the field | every `interval` (2 s); on Windows a probe takes so long that the in-flight guard spaces them (2–4 s) |
 
 The macOS probe reads the HIToolbox preference, so it needs no Accessibility
 permission and follows every layout change (⌃Space / 🌐). Layout names map to a
 short code (`ABC`/`US`/`British` → `EN`, `Thai` → `TH`, `French` → `FR`, …);
 a layout outside that table shows the first three letters of its name (`SWI`)
-rather than a guessed language. The Windows probe is unverified on real
-hardware here — it is best-effort and falls back to `—`.
+rather than a guessed language.
+
+The Windows probe starts `powershell.exe` and compiles its P/Invoke helper on
+every sample, which costs ~2.5–3.5 s rather than milliseconds. It shares the
+CPU cadence, but a probe is still running when the next tick fires, so the
+in-flight guard spaces samples to every 2–4 s; the last language stays
+on screen in between. Windows `netstat -e` only reports the totals of the whole
+IP stack, so the `NET` field there sums every adapter (loopback included)
+instead of following the default route.
 
 Rates are the delta between two samples, so the first sample after start or
 after an interface change (Wi-Fi ⇄ VPN) shows `↓— ↑—`. The default-route
@@ -124,11 +131,12 @@ cd plugins/system-status
 node test/harness.mjs   # or: bun run test
 ```
 
-Offline only: CPU delta math, `vm_stat` / `netstat` / `/proc` parsing, rate
+Offline only: CPU delta math, `vm_stat` / `netstat` / `netstat -e` / `/proc` parsing, rate
 math, threshold tones, missing values, stale prefix, width clipping, the
-macOS/Windows keyboard parsers and their layout table, option/env resolution,
-install helper patching, collector lifecycle with injected commands, packaging
-and source hygiene. Must print `ALL TESTS PASSED (N assertions)`.
+macOS/Windows keyboard parsers and the Windows `-EncodedCommand` payload,
+option/env resolution, install helper patching, collector lifecycle with
+injected commands, packaging and source hygiene. Must print
+`ALL TESTS PASSED (N assertions)`.
 
 ## Notes
 

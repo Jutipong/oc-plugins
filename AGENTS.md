@@ -125,13 +125,17 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   `vm_stat` active + wired + compressed (every 5 s), elsewhere `total - freemem`;
   network = default-route interface byte-counter deltas each tick (macOS
   `netstat -ibn` + `route -n get default` cached 60 s, Linux `/proc/net/dev` +
-  `/proc/net/route`, else null). A new baseline (start / interface switch)
-  reports no rate for one tick. Keyboard = `defaults read com.apple.HIToolbox
+  `/proc/net/route`, Windows `netstat -e` — whole IP stack, no per-interface
+  split). A new baseline (start / interface switch) reports no rate for one
+  tick. Keyboard = `defaults read com.apple.HIToolbox
   AppleCurrentKeyboardLayoutInputSourceID` on macOS (no Accessibility
   permission; layout name → short code table in `src/keyboard.mjs`) and a
   PowerShell + user32 `GetKeyboardLayout` probe of the foreground window on
-  Windows (unverified on real hardware); probed on every tick like network
-  (in-flight guarded), other platforms omit the field.
+  Windows (verified 2026-10-28 on Win11 26100; the script ships as
+  `-EncodedCommand` base64/UTF-16LE because `execFile` has no shell to quote
+  the C# `"` and `$`), on the same tick cadence as NET — but a spawn costs
+  2.5–3.5 s, so the in-flight guard paces the Windows probe to 2–4 s and the
+  last code stays visible between samples. Other platforms omit the field.
   There is **no temperature source** (macOS 26+ removed the `powermetrics smc`
   sampler); the plugin does not spawn sensor helpers.
 - **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (2 s, 1–10),
@@ -143,7 +147,8 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   (`~/.config/opencode/plugins/system-status-debug.log`, 512 KB truncate).
 - **Tests**: `cd plugins/system-status && node test/harness.mjs` (offline, no
   processes; must print `ALL TESTS PASSED`). Covers CPU delta math, `vm_stat`,
-  `netstat`/`/proc` parsing, rate math, clipping, lifecycle with injected
+  `netstat` / `netstat -e` / `/proc` parsing, rate math, clipping, the Windows
+  `-EncodedCommand` payload and its per-tick probe, lifecycle with injected
   commands, install helper and packaging.
 
 ## go-usage specifics (CLI plugin, verified 2026-10-20 on OpenCode 2.1.1)
