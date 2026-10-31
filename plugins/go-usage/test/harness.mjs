@@ -10,7 +10,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { displayWidth, formatReset, toNumber, toTime, toneForMeter, truncate } from "../src/format.mjs"
+import { displayWidth, formatReset, formatTps, toNumber, toTime, toneForMeter, toneForTps, truncate } from "../src/format.mjs"
 import { METER_KEYS, meterFromRaw, normalizeStatus } from "../src/status.mjs"
 import {
   DEFAULT_BASE_URL,
@@ -25,12 +25,13 @@ import {
   parseTokenOutcome,
 } from "../src/auth.mjs"
 import { createUsageService } from "../src/service.mjs"
+import { clampCharsPerToken, createSpeedTracker } from "../src/tps.mjs"
 import { resolveCommand } from "../src/commands.mjs"
 import { clampInterval, resolveOptions } from "../src/options.mjs"
 import { createObservable } from "../src/store.mjs"
 import { createLogger, logPath } from "../src/log.mjs"
 import { openBrowser, openCommand } from "../src/open.mjs"
-import { STATUS_METERS, buildDetailLines, buildPromptLine } from "../src/model.mjs"
+import { STATUS_METERS, buildDetailLines, buildPromptLine, speedForSession } from "../src/model.mjs"
 import { MOLE_PALETTE } from "../src/colors.mjs"
 import { cliConfigPath, configDirectory, patchCliConfig, removeCliPlugin } from "../scripts/lib.mjs"
 
@@ -166,6 +167,70 @@ test("tone buckets are shared across the CLI plugins (50 / 80)", () => {
   eq(toneForMeter(79.9), "warning")
   eq(toneForMeter(80), "danger")
   eq(toneForMeter(120), "danger")
+})
+
+test("speed label keeps one decimal below 10 and rounds above it", () => {
+  eq(formatTps(null), "—")
+  eq(formatTps(0), "—")
+  eq(formatTps(-3), "—")
+  eq(formatTps(0.44), "0.4")
+  eq(formatTps(7.44), "7.4")
+  eq(formatTps(9.94), "9.9")
+  eq(formatTps(9.96), "10")
+  eq(formatTps(45.3), "45")
+  eq(formatTps(120), "120")
+})
+
+test("speed buckets: >= 30 green, >= 10 amber, below that red", () => {
+  eq(toneForTps(0), "danger")
+  eq(toneForTps(9.9), "danger")
+  eq(toneForTps(10), "warning")
+  eq(toneForTps(29.9), "warning")
+  eq(toneForTps(30), "success")
+  eq(toneForTps(400), "success")
+})
+
+test("chars-per-token factor clamps to 1-8 with a 3.5 default", () => {
+  eq(clampCharsPerToken(undefined), 3.5)
+  eq(clampCharsPerToken("2.4"), 2.4)
+  eq(clampCharsPerToken(0), 3.5)
+  eq(clampCharsPerToken("x"), 3.5)
+  eq(clampCharsPerToken(99), 8)
+})
+
+test("speed tracker converts a delta window into tokens/second", () => {
+  const tracker = createSpeedTracker({ charsPerToken: 4, windowMs: 2000, freshMs: 1500, minSpanMs: 500 })
+  tracker.start("s1", 0)
+  tracker.push("s1", 40, 1000) // 10 tokens
+  tracker.push("s1", 40, 1500) // 20 tokens over a 500 ms window
+  eq(tracker.snapshot(1500), { s1: 40 })
+
+  tracker.push("s1", 400, 2000) // 120 tokens over 1000 ms
+  eq(tracker.snapshot(2000), { s1: 120 })
+
+  // A quiet session hides after the freshness window instead of showing stale speed.
+  eq(tracker.snapshot(3000), { s1: 120 })
+  eq(tracker.snapshot(3501), {})
+
+  tracker.dispose()
+})
+
+test("speed tracker isolates sessions, resets on start and forgets on end", () => {
+  const tracker = createSpeedTracker({ charsPerToken: 4 })
+  tracker.start("a", 0)
+  tracker.start("b", 0)
+  tracker.push("a", 80, 1000) // one delta: 20 tokens over the 500 ms floor
+  tracker.push("b", 40, 1000)
+  eq(tracker.snapshot(1000), { a: 40, b: 20 })
+
+  tracker.start("a", 1200) // new step: old deltas no longer count
+  tracker.push("a", 40, 1500)
+  eq(tracker.snapshot(1500), { a: 20, b: 20 })
+
+  tracker.end("a")
+  eq(tracker.snapshot(1500), { b: 20 })
+
+  tracker.dispose()
 })
 
 test("truncate is unicode-aware and displayWidth counts cells", () => {
@@ -306,6 +371,59 @@ test("prompt line marks stale values with a warning prefix", () => {
   eq(line[3].tone, "danger")
 })
 
+test("prompt line appends the live speed field with tier tones", () => {
+  const line = buildPromptLine(goStatusView({ speed: 45.3 }))
+  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡45 tok/s]")
+  eq(line.map((segment) => segment.text), [
+    "[",
+    "H:",
+    "92%",
+    " · ",
+    "W:",
+    "45%",
+    " · ",
+    "M:",
+    "44%",
+    " · ",
+    "⚡",
+    "45",
+    " tok/s",
+    "]",
+  ])
+  eq(line[10].tone, "muted")
+  eq(line[11].tone, "success")
+  eq(line[12].tone, "muted")
+
+  eq(flatText(buildPromptLine(goStatusView({ speed: 12.2 }))), "[H:92% · W:45% · M:44% · ⚡12 tok/s]")
+  eq(buildPromptLine(goStatusView({ speed: 12.2 }))[11].tone, "warning")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 4.26 }))), "[H:92% · W:45% · M:44% · ⚡4.3 tok/s]")
+  eq(buildPromptLine(goStatusView({ speed: 4.26 }))[11].tone, "danger")
+
+  eq(flatText(buildPromptLine(goStatusView({ speed: null }))), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 0 }))), "[H:92% · W:45% · M:44%]")
+})
+
+test("speed only renders on the ready row and drops first when narrow", () => {
+  eq(flatText(buildPromptLine({ phase: "error", error: "HTTP 500", speed: 45 })), "Go !")
+  eq(flatText(buildPromptLine({ phase: "checking", speed: 45 })), "Go …")
+
+  const view = goStatusView({ speed: 45.3 })
+  eq(flatText(buildPromptLine(view, { width: 35 })), "[H:92% · W:45% · M:44% · ⚡45 tok/s]")
+  eq(flatText(buildPromptLine(view, { width: 34 })), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(view, { width: 22 })), "[H:92% · W:45%]")
+})
+
+test("speedForSession only returns the footer session's own live rate", () => {
+  const speeds = { ses_a: 45, ses_b: 8.4 }
+  eq(speedForSession(speeds, "ses_a"), 45)
+  eq(speedForSession(speeds, "ses_b"), 8.4)
+  eq(speedForSession(speeds, "ses_c"), null)
+  eq(speedForSession(speeds, undefined), null)
+  eq(speedForSession(undefined, "ses_a"), null)
+  eq(speedForSession({ ses_a: 0 }, "ses_a"), null)
+  eq(speedForSession({ ses_a: "x" }, "ses_a"), null)
+})
+
 test("prompt line drops trailing meters whole and keeps the brackets balanced", () => {
   const view = goStatusView()
   eq(flatText(buildPromptLine(view, { width: 23 })), "[H:92% · W:45% · M:44%]")
@@ -335,6 +453,8 @@ test("prompt line shows a state marker for every non-ready phase", () => {
 test("prompt line never exceeds the requested width and never leaks internals", () => {
   const views = [
     goStatusView(),
+    goStatusView({ speed: 45.3 }),
+    goStatusView({ speed: 4.2, stale: true }),
     goStatusView({ stale: true, error: "HTTP 500" }),
     { phase: "checking" },
     { phase: "loading" },
@@ -683,6 +803,18 @@ test("option and env resolution uses GO_USAGE_*", () => {
   eq(resolveOptions({ env: { GO_USAGE_COLOR_MODE: "theme" } }).colorMode, "theme")
   eq(resolveOptions({ options: { colorMode: "wat" } }).colorMode, "mole")
   eq(resolveOptions({ options: { colorMode: "theme" }, env: { GO_USAGE_COLOR_MODE: "mole" } }).colorMode, "theme")
+  eq(resolveOptions({}).tps, true)
+  eq(resolveOptions({ options: { tps: false } }).tps, false)
+  eq(resolveOptions({ options: { tps: true } }).tps, true)
+  eq(resolveOptions({ env: { GO_USAGE_TPS: "0" } }).tps, false)
+  eq(resolveOptions({ env: { GO_USAGE_TPS: "off" } }).tps, false)
+  eq(resolveOptions({ env: { GO_USAGE_TPS: "1" } }).tps, true)
+  eq(resolveOptions({}).tpsCharsPerToken, 3.5)
+  eq(resolveOptions({ options: { tpsFactor: 2.4 } }).tpsCharsPerToken, 2.4)
+  eq(resolveOptions({ env: { GO_USAGE_TPS_FACTOR: "2.5" } }).tpsCharsPerToken, 2.5)
+  eq(resolveOptions({ env: { GO_USAGE_TPS_FACTOR: "99" } }).tpsCharsPerToken, 8)
+  eq(resolveOptions({ env: { GO_USAGE_TPS_FACTOR: "x" } }).tpsCharsPerToken, 3.5)
+  eq(resolveOptions({ options: { tpsFactor: 2.4 }, env: { GO_USAGE_TPS_FACTOR: "5" } }).tpsCharsPerToken, 2.4)
 })
 
 test("mole palette matches the other CLI plugins", () => {
@@ -795,6 +927,8 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(entry, "prompt.footer.status")
   excludes(entry, "sidebar.content", "the plugin owns the prompt footer only")
   includes(entry, "resolveCommand", "no-argument /go-usage must route through resolveCommand")
+  includes(entry, "createSpeedTracker", "the footer needs the live speed tracker")
+  includes(entry, "context.data.listen", "the speed tracker follows the runtime event stream")
   includes(entry, 'slash: { name: "go-usage", arguments: true }')
   includes(entry, 'slash: { name: "go-usage-login" }')
   includes(entry, 'slash: { name: "go-usage-logout" }')
@@ -803,8 +937,10 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(entry, "go-usage.refresh", "palette must keep a refresh entry")
   includes(entry, "loginEpoch += 1", "logout must invalidate in-flight logins")
   includes(entry, "suppressAdopt = true", "logout must stop re-adopting the stored session")
+  includes(entry, "sessionID={slot?.sessionID}", "the footer must show only its own session's speed")
   const ui = fs.readFileSync(path.join(PLUGIN_DIR, "src/ui/line.tsx"), "utf8")
   includes(ui, "buildPromptLine")
+  includes(ui, "speedForSession")
   includes(ui, "colorMode={props.colorMode}")
   includes(ui, "RGBA.fromInts")
   includes(ui, "MOLE_PALETTE")

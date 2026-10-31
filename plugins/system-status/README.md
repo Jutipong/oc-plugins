@@ -4,14 +4,16 @@ CPU load, RAM usage and network throughput as one line in the prompt footer
 (`prompt.footer.status`), next to `go-usage`:
 
 ```text
-[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]
+[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]
 ```
 
 - `CPU` — overall busy time across all cores (smoothed, 0–100%).
 - `RAM` — used physical memory (0–100%).
-- `NET` — `↓` / `↑` receive / send rate of the default-route interface, in bytes
-  per second (`K` = 1024, one decimal below 10). The space between the arrows
-  keeps the two numbers readable.
+- `NET` — `↓` / `↑` receive / send rate of the default-route interface. The
+  smallest unit is `K` (`K` = 1024); raw bytes are never shown (`512 B/s` →
+  `0.50K`). Values keep at most two decimals (`0.50K`, `3.40K`, `1.20M`) and
+  switch to a whole number from 10 upward (`12K`, `340M`). The space between
+  the arrows keeps the two numbers readable.
 - Labels are muted, values carry the threshold tone, brackets and ` · `
   separators stay faint. The style matches `go-usage`.
 - Missing values render as `—` (`NET:↓— ↑—` before the first network sample).
@@ -102,11 +104,11 @@ Debug logs: `~/.config/opencode/plugins/system-status-debug.log`
 | Row shows | Meaning |
 | --- | --- |
 | `[CPU:— · RAM:— · NET:↓— ↑—]` | Before the first sample |
-| `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` | Live values |
-| `! [CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` | Collector error; previous values kept |
+| `[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]` | Live values |
+| `! [CPU:37% · RAM:62% · NET:↓1.20M ↑240K]` | Collector error; previous values kept |
 | `[CPU:37% · RAM:62%]` | `network: false`, or too narrow for three fields |
 
-The full line is 37 cells at default width 40; below that the trailing field is
+The full line is 38 cells at default width 40; below that the trailing field is
 dropped whole (`NET` first, then `RAM`), and the brackets stay balanced.
 
 ## Tests

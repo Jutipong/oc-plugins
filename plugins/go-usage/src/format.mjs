@@ -53,6 +53,24 @@ export function toneForMeter(percentValue) {
 }
 
 /**
+ * Live output speed -> compact label: `"45"`, `"7.4"` below 10, `"—"` when
+ * unknown. One decimal only under 10 so the cell count stays small.
+ */
+export function formatTps(value) {
+  const number = toNumber(value)
+  if (number == null || number <= 0) return "—"
+  return number < 9.95 ? number.toFixed(1) : String(Math.round(number))
+}
+
+/** Speed buckets: >= 30 tokens/s success, >= 10 warning, else danger. */
+export function toneForTps(value) {
+  const number = toNumber(value) ?? 0
+  if (number >= 30) return "success"
+  if (number >= 10) return "warning"
+  return "danger"
+}
+
+/**
  * Reset countdown, mirroring the console formatter: minutes are rounded up
  * and only the two largest units are shown ("0h 31m", "12h 12m", "9d 14h").
  */

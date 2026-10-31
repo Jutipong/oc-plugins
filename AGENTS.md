@@ -72,6 +72,33 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   complete (timers + hook registrations) and treat duplicate instances as
   normal (they are benign; each has its own state).
 
+### TUI plugin runtime (probed on 2.2.5, 2026-10-31)
+
+- `setup(ctx)` gets `options, location, app, renderer, client, data, attention,
+  theme, themeMode, markdown, keymap, storage, ui`.
+- `ctx.data.listen(cb)` works and delivers server events as
+  `{ details: { id, created, type, data, location? , durable? } }` — **not
+  every event carries `location`** (`session.usage.updated` does not); filter
+  only when it is present. `ctx.data.on(type, cb)` also registers fine.
+- Live event sequence on 2.2.5: `session.execution.started` →
+  `session.step.started` → `session.reasoning.started/.delta` →
+  `session.text.started/.delta` → `session.text.ended` →
+  `session.step.streamed` (no payload) → `session.step.ended` (carries
+  `tokens` + `finish`) → `session.usage.updated` (`tokens`, `cost`) →
+  `session.execution.succeeded`. `session.idle` did not fire in the TUI probe
+  (the execution event ends the turn); listen for both.
+- Deltas are batched (~100 ms, 20–90 chars each), so a live speed meter must
+  use a window, not per-event gaps.
+- **Mid-stream assistant messages have `tokens: undefined`**; real token
+  counts appear only at step end (`session.step.ended.tokens`,
+  `session.usage.updated`). `ctx.data.session.message.sync/list` is async-heavy;
+  do not poll it per delta.
+- `ctx.data.session.status(sessionID)` is `"running"` while streaming and
+  `"idle"` afterwards.
+- The `prompt.footer.status` slot render receives reactive
+  `{ sessionID, mode, showDetails }` and **no `width`** — renderers keep
+  their own fallback width.
+
 ## esp-buddy specifics
 
 - State model: `working` while any tool is in flight; `thinking` while a
@@ -107,11 +134,13 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   caps itself at `DEFAULT_WIDTH` 40. No commands, no storage, no network
   requests. Entry `tui.ts` → `src/entry.tsx`
   (`Plugin.define({ id: "system-status", setup(ctx) })`).
-- **Line**: `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` (37 cells at default
+- **Line**: `[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]` (38 cells at default
   width 40). Labels `CPU:`/`RAM:`/`NET:` are muted, values use the threshold
-  tone (50/80); network shows `↓`/`↑` in bytes/s (`K` = 1024, one decimal
-  < 10) toned by activity (green when flowing, muted when idle/unknown) —
-  brackets and ` · ` separators are faint. Missing values render `—`
+  tone (50/80); network shows `↓`/`↑` in bytes/s with `K` as the smallest
+  unit (never raw bytes), at most two decimals below 10 (`0.50K`, `3.40K`,
+  `1.20M`) and whole numbers from 10 up (`12K`, `340M`), toned by activity
+  (green when flowing, muted when idle/unknown) — brackets and ` · `
+  separators are faint. Missing values render `—`
   (`NET:↓— ↑—` while the first counter baseline is pending); collector errors
   prefix `! `. Clipping drops the trailing field whole (`NET`, then `RAM`) and
   keeps the brackets balanced. `network: false` removes the field. There is
@@ -150,11 +179,14 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
 - **Surface**: prompt footer only — `context.ui.slot({ append: "prompt.footer.status", ... })`.
   Entry `tui.ts` → `src/entry.tsx` (`Plugin.define({ id: "go-usage", ... })`).
   No sidebar/frame/bars.
-- **Line**: `[H:92% · W:45% · M:44%]` (H rolling 5 h, W weekly, M monthly).
+- **Line**: `[H:92% · W:45% · M:44% · ⚡45 tok/s]` (H rolling 5 h, W weekly,
+  M monthly; `⚡n tok/s` only while the footer's own session is generating).
   Labels are muted, values use the 50/80 threshold tone, brackets and ` · ` are
-  faint; missing meters render `—`; stale values prefix `! `. Clipping drops
-  trailing meters whole (`M`, then `W`) and keeps the brackets balanced.
-  Non-ready states are `Go …` / `Go —` / `Go !`.
+  faint; missing meters render `—`; stale values prefix `! `. The speed field
+  is toned by tier: green ≥ 30 tok/s, amber 10–29, red < 10; it hides when the
+  stream goes quiet and is the first field dropped when narrow (then `M`, then
+  `W`), keeping the brackets balanced. Non-ready states are `Go …` / `Go —` /
+  `Go !` (no speed field).
 - **Data source**: `GET {console}/api/go/status` (base
   `https://opencode.ai/console`, env/option overridable). Response is nullable
   (no subscription): `access.meters.{fiveHour,week,month}` each
@@ -177,9 +209,21 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   login or stale storage cannot resurrect the session.
 - **Options/env**: `interval` / `GO_USAGE_INTERVAL` (300 s, 15–3600),
   `baseUrl` / `GO_USAGE_BASE_URL`, `org` / `GO_USAGE_ORG`, `colorMode` /
-  `GO_USAGE_COLOR_MODE` (`mole` / `theme`), `openBrowser` /
-  `GO_USAGE_NO_OPEN=1`, `debug` / `GO_USAGE_DEBUG=1`
+  `GO_USAGE_COLOR_MODE` (`mole` / `theme`), `tps` / `GO_USAGE_TPS` (on;
+  `0`/`false`/`off`/`no` hides the speed field), `tpsFactor` /
+  `GO_USAGE_TPS_FACTOR` (chars per token, default 3.5, clamped 1–8),
+  `openBrowser` / `GO_USAGE_NO_OPEN=1`, `debug` / `GO_USAGE_DEBUG=1`
   (`~/.config/opencode/plugins/go-usage-debug.log`, 512 KB truncate). The
   payload is cached in storage so the footer renders instantly after restart.
+- **Speed meter**: the runtime streams `session.text.delta` / `.reasoning.delta`
+  but exposes no mid-stream token counters (verified on 2.2.5), so the
+  tracker estimates tok/s from delta characters in a 2 s sliding window
+  (minimum span 500 ms, hides after 1.5 s without a delta). It listens via
+  `context.data.listen`, filters by `location.directory`, ignores child
+  sessions, and the slot renders only the rate of its own `sessionID`.
+  Publish is throttled to 2/s and skipped when the visible value is
+  unchanged.
 - **Tests**: `cd plugins/go-usage && node test/harness.mjs` (offline, no
-  network; must print `ALL TESTS PASSED`).
+  network; must print `ALL TESTS PASSED`). Covers meter math/tones, the speed
+  tracker (window, freshness, per-session isolation, factor clamp), line
+  clipping, auth flow, options, packaging.

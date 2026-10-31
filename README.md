@@ -7,8 +7,8 @@ an offline test harness, and its own README.
 | plugin | what it does | hardware |
 |---|---|---|
 | [esp-buddy](plugins/esp-buddy) | playful desk buddy: mirrors OpenCode activity onto an ESP32-S3 RLCD avatar (`working`/`thinking`/`speaking`/`happy`/`confused` + idle play pulses) | [ESP32-S3-AI](https://github.com/Jutipong/ESP32-S3-AI) |
-| [go-usage](plugins/go-usage) | OpenCode Go plan usage as a one-line `[H:92% · W:45% · M:44%]` meter in the prompt footer, device-code login, `/go-usage` command | — |
-| [system-status](plugins/system-status) | one-line `[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]` prompt-footer meter (CPU load, RAM, network, macOS + Windows) | any Mac or PC running OpenCode V2 |
+| [go-usage](plugins/go-usage) | OpenCode Go plan usage as a one-line `[H:92% · W:45% · M:44%]` meter plus a live color-coded `⚡45 tok/s` speed field in the prompt footer, device-code login, `/go-usage` command | — |
+| [system-status](plugins/system-status) | one-line `[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]` prompt-footer meter (CPU load, RAM, network, macOS + Windows) | any Mac or PC running OpenCode V2 |
 
 ## Install
 

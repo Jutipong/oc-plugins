@@ -9,6 +9,7 @@ import { resolveOptions } from "./options.mjs"
 import { createUsageService } from "./service.mjs"
 import { normalizeStatus } from "./status.mjs"
 import { createObservable } from "./store.mjs"
+import { createSpeedTracker } from "./tps.mjs"
 import { PromptUsage } from "./ui/line.tsx"
 
 const NO_FETCH = () => Promise.reject(new Error("fetch unavailable"))
@@ -22,7 +23,7 @@ export default Plugin.define({
     const userAgent = `opencode/${context.app?.version ?? "2.0"} (go-usage)`
     const fetchImpl = typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : null
 
-    log.write(`setup interval=${options.intervalSeconds}s base=${options.baseUrl}`)
+    log.write(`setup interval=${options.intervalSeconds}s base=${options.baseUrl} tps=${options.tps}`)
 
     const [authDoc, updateAuthDoc] = context.storage.store("auth", {
       initial: { access: null, refresh: null, expiresAt: 0, orgId: null },
@@ -71,6 +72,8 @@ export default Plugin.define({
           : { phase: "loading", status: null, stale: false, fetchedAt: 0, error: null }
       : { phase: "checking", status: null, stale: false, fetchedAt: 0, error: null }
     const state = createObservable(initialView)
+    // `{ [sessionID]: tokensPerSecond }` for sessions that are streaming now.
+    const speeds = createObservable({})
 
     let inFlight = null
     let loginTask = null
@@ -320,10 +323,80 @@ export default Plugin.define({
     }))
 
     const disposers = []
+
+    // Live output speed: the runtime streams text/reasoning deltas but no
+    // token counters until a step ends, so the tracker estimates tokens per
+    // second from delta characters (see tps.mjs). Published at most twice a
+    // second, and only when the visible value changes.
+    if (options.tps && typeof context.data?.listen === "function") {
+      const tracker = createSpeedTracker({ charsPerToken: options.tpsCharsPerToken })
+      let signature = ""
+      const publishSpeed = () => {
+        const next = tracker.snapshot()
+        const nextSignature = JSON.stringify(next)
+        if (nextSignature === signature) return
+        signature = nextSignature
+        speeds.set(next)
+      }
+      const onSpeedEvent = (event) => {
+        try {
+          const details = event?.details ?? event
+          const type = details?.type
+          const data = details?.data ?? {}
+          const dir = details?.location?.directory
+          const here = context.location?.directory
+          if (dir && here && dir !== here) return
+          const sid = data.sessionID
+          if (!sid) return
+          switch (type) {
+            case "session.execution.started":
+            case "session.step.started":
+              tracker.start(sid)
+              break
+            case "session.text.delta":
+            case "session.reasoning.delta": {
+              const delta = data.delta
+              if (typeof delta === "string" && delta) tracker.push(sid, delta.length)
+              break
+            }
+            case "session.execution.succeeded":
+            case "session.execution.failed":
+            case "session.execution.interrupted":
+            case "session.idle":
+              tracker.end(sid)
+              break
+            default:
+              return
+          }
+          publishSpeed()
+        } catch (error) {
+          log.write(`speed event failed: ${error?.message ?? error}`)
+        }
+      }
+      try {
+        disposers.push(context.data.listen(onSpeedEvent))
+      } catch (error) {
+        log.write(`speed listen failed: ${error?.message ?? error}`)
+      }
+      const speedTimer = setInterval(publishSpeed, 500)
+      disposers.push(() => {
+        clearInterval(speedTimer)
+        tracker.dispose()
+      })
+    }
+
     disposers.push(
       context.ui.slot({
         append: "prompt.footer.status",
-        render: () => <PromptUsage context={context} state={state} colorMode={options.colorMode} />,
+        render: (slot) => (
+          <PromptUsage
+            context={context}
+            state={state}
+            speeds={options.tps ? speeds : undefined}
+            sessionID={slot?.sessionID}
+            colorMode={options.colorMode}
+          />
+        ),
       }),
     )
 

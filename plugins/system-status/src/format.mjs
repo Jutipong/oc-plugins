@@ -46,23 +46,23 @@ export function formatPercent(value) {
   return number == null ? "—" : `${Math.round(number)}%`
 }
 
-const RATE_UNITS = ["B", "K", "M", "G", "T"]
+const RATE_UNITS = ["K", "M", "G", "T"]
 
 /**
- * Bytes per second -> a compact 1-4 cell label: `"512B"`, `"3.4K"`, `"12K"`,
- * `"1.2M"`, `"340M"`, or `"—"` when unknown. 1 K = 1024 B.
+ * Bytes per second -> a compact label with K as the smallest unit and at most
+ * two decimals: `"0.50K"`, `"3.40K"`, `"12K"`, `"1.20M"`, `"340M"`, or `"—"`
+ * when unknown. 1 K = 1024 B; raw bytes are never shown.
  */
 export function formatRate(bytesPerSecond) {
   const value = toNumber(bytesPerSecond)
   if (value == null || value < 0) return "—"
-  let amount = value
+  let amount = value / 1024
   let unit = 0
   while (amount >= 1024 && unit < RATE_UNITS.length - 1) {
     amount /= 1024
     unit += 1
   }
-  if (unit === 0) return amount < 999.5 ? `${Math.round(amount)}B` : "1.0K"
-  return `${amount < 9.95 ? amount.toFixed(1) : Math.round(amount)}${RATE_UNITS[unit]}`
+  return `${amount < 9.995 ? amount.toFixed(2) : Math.round(amount)}${RATE_UNITS[unit]}`
 }
 
 /** Exponential moving average, used to smooth CPU load between ticks. */

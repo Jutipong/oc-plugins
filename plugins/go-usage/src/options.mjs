@@ -1,6 +1,7 @@
 // go-usage — option/env resolution (pure).
 
 import { DEFAULT_BASE_URL, normalizeBaseUrl } from "./auth.mjs"
+import { clampCharsPerToken } from "./tps.mjs"
 
 export const DEFAULT_INTERVAL_SEC = 300
 export const MIN_INTERVAL_SEC = 15
@@ -15,6 +16,12 @@ export function clampInterval(seconds, fallback = DEFAULT_INTERVAL_SEC) {
 
 export function truthyFlag(value) {
   return value === true || value === "1" || value === "true" || value === "yes"
+}
+
+/** Explicit off switch for an option that is on by default (`0`, `false`, `off`, `no`). */
+export function falsyFlag(value) {
+  if (value === false) return true
+  return ["0", "false", "off", "no"].includes(String(value ?? "").toLowerCase())
 }
 
 /**
@@ -32,6 +39,8 @@ export function resolveOptions({ options = {}, env = {} } = {}) {
         ? env.GO_USAGE_COLOR_MODE
         : "mole",
     openBrowser: options.openBrowser !== false && !truthyFlag(env.GO_USAGE_NO_OPEN),
+    tps: options.tps !== false && !falsyFlag(env.GO_USAGE_TPS),
+    tpsCharsPerToken: clampCharsPerToken(options.tpsFactor ?? env.GO_USAGE_TPS_FACTOR),
     debug: options.debug === true || truthyFlag(env.GO_USAGE_DEBUG),
   }
 }

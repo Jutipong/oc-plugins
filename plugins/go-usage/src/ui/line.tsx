@@ -2,7 +2,7 @@
 import { For, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { RGBA } from "@opentui/core"
 import { MOLE_PALETTE } from "../colors.mjs"
-import { buildPromptLine } from "../model.mjs"
+import { buildPromptLine, speedForSession } from "../model.mjs"
 
 const MOLE_RGBA = Object.fromEntries(
   Object.entries(MOLE_PALETTE).map(([tone, rgb]) => [tone, RGBA.fromInts(rgb[0], rgb[1], rgb[2], 255)]),
@@ -55,13 +55,23 @@ export function LineText(props) {
  */
 export function PromptUsage(props) {
   const [view, setView] = createSignal(props.state.get())
+  const [speeds, setSpeeds] = createSignal(props.speeds?.get?.() ?? {})
 
   onMount(() => {
     const unsubscribe = props.state.subscribe(setView)
-    onCleanup(unsubscribe)
+    const unsubscribeSpeeds = props.speeds?.subscribe?.(setSpeeds)
+    onCleanup(() => {
+      unsubscribe()
+      unsubscribeSpeeds?.()
+    })
   })
 
-  const line = createMemo(() => buildPromptLine(view(), { width: props.width ?? 36 }))
+  const line = createMemo(() =>
+    buildPromptLine(
+      { ...view(), speed: speedForSession(speeds(), props.sessionID) },
+      { width: props.width ?? 40 },
+    ),
+  )
 
   return <LineText line={line()} theme={props.context.theme} colorMode={props.colorMode} />
 }

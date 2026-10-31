@@ -1,13 +1,14 @@
 // go-usage — view state -> the prompt-footer line.
 //
 // The prompt footer is a single narrow row, so the model renders one short
-// `[H:92%|W:45%|M:44%]` line (H = rolling 5h, W = weekly, M = monthly) with
-// per-meter threshold tones and faint brackets/separators. Pure so the
-// harness can assert every state.
+// `[H:92% · W:45% · M:44%]` line (H = rolling 5h, W = weekly, M = monthly)
+// with per-meter threshold tones and faint brackets/separators. While the
+// session streams, a trailing `⚡45 tok/s` field shows the live rate, toned
+// green/amber/red by speed. Pure so the harness can assert every state.
 
-import { displayWidth, formatReset, toneForMeter, truncate } from "./format.mjs"
+import { displayWidth, formatReset, formatTps, toneForMeter, toneForTps, toNumber, truncate } from "./format.mjs"
 
-const PROMPT_WIDTH = 36
+const PROMPT_WIDTH = 40
 
 /** Footer meters in display order; the labels mirror the Console cards. */
 export const STATUS_METERS = [
@@ -73,13 +74,24 @@ function bracketLine(meters, budget) {
 }
 
 /**
+ * Pick the live speed for the session a footer is rendering. The tracker
+ * publishes one value per session; a footer only shows its own session.
+ */
+export function speedForSession(speeds, sessionID) {
+  if (!speeds || !sessionID) return null
+  const value = toNumber(speeds[sessionID])
+  return value != null && value > 0 ? value : null
+}
+
+/**
  * `prompt.footer.status` line.
  *
- * view: { phase, status, stale, error, fetchedAt }
+ * view: { phase, status, stale, error, fetchedAt, speed }
  *   phase: "checking" | "loading" | "ready" | "error" | "absent" | "disconnected"
+ *   speed: live tokens/second while this session is generating, else null
  *
  * options:
- *   width — max cells (default 36)
+ *   width — max cells (default 40)
  */
 export function buildPromptLine(view = {}, options = {}) {
   const width = Math.max(8, Math.round(options.width ?? PROMPT_WIDTH))
@@ -93,6 +105,10 @@ export function buildPromptLine(view = {}, options = {}) {
         ? [seg(`${prefix}:`, "muted"), seg(meter.badge, toneForMeter(meter.percent))]
         : [seg(`${prefix}:`, "muted"), seg("—", "muted")]
     })
+    const speed = toNumber(view.speed)
+    if (speed != null && speed > 0) {
+      groups.push([seg("⚡", "muted"), seg(formatTps(speed), toneForTps(speed)), seg(" tok/s", "muted")])
+    }
     const prefix = view.stale ? [seg("! ", "warning")] : []
     const budget = Math.max(0, width - lineWidth(prefix))
     return [...prefix, ...bracketLine(groups, budget)]

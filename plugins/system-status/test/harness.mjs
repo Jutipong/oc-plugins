@@ -146,19 +146,23 @@ test("toNumber accepts numbers, bigints and numeric strings", () => {
   eq(toNumber(null), null)
 })
 
-test("rate formatting auto-scales bytes and stays within four cells", () => {
+test("rate formatting never drops below K and keeps at most two decimals", () => {
   eq(formatRate(null), "—")
   eq(formatRate(NaN), "—")
   eq(formatRate(-5), "—")
-  eq(formatRate(0), "0B")
-  eq(formatRate(512), "512B")
-  eq(formatRate(1024), "1.0K")
-  eq(formatRate(3.4 * 1024), "3.4K")
+  eq(formatRate(0), "0.00K")
+  eq(formatRate(512), "0.50K")
+  eq(formatRate(1024), "1.00K")
+  eq(formatRate(3.4 * 1024), "3.40K")
   eq(formatRate(12 * 1024), "12K")
-  eq(formatRate(1.2 * 1024 * 1024), "1.2M")
+  eq(formatRate(1.2 * 1024 * 1024), "1.20M")
   eq(formatRate(340 * 1024 * 1024), "340M")
+  eq(formatRate(5 * 1024 * 1024 * 1024), "5.00G")
   for (const value of [0, 999, 1000, 1023, 1024, 5000, 1e6, 5e8, 3e12, 1e15]) {
-    ok(displayWidth(formatRate(value)) <= 4, `too wide: ${formatRate(value)}`)
+    ok(displayWidth(formatRate(value)) <= 5, `too wide: ${formatRate(value)}`)
+  }
+  for (const value of [0, 1, 512, 1024, 5000, 1e6, 5e8]) {
+    excludes(formatRate(value), "B", `raw bytes leaked: ${formatRate(value)}`)
   }
 })
 
@@ -536,7 +540,7 @@ await testAsync("collector samples NET on Windows from `netstat -e`", async () =
 
 test("prompt line renders bracketed CPU/RAM/NET with faint labels and toned values", () => {
   const line = buildPromptLine({ cpu: 37, ram: 62, net: { down: 1.2 * 1024 * 1024, up: 240 * 1024 } })
-  eq(flatText(line), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]")
+  eq(flatText(line), "[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]")
   eq(line.map((segment) => segment.text), [
     "[",
     "CPU:",
@@ -546,7 +550,7 @@ test("prompt line renders bracketed CPU/RAM/NET with faint labels and toned valu
     "62%",
     " · ",
     "NET:",
-    "↓1.2M ↑240K",
+    "↓1.20M ↑240K",
     "]",
   ])
   eq(line.map((segment) => segment.tone), [
@@ -563,13 +567,13 @@ test("prompt line renders bracketed CPU/RAM/NET with faint labels and toned valu
   ])
 
   const hot = buildPromptLine({ cpu: 91, ram: 85, net: { down: 5 * 1024 * 1024, up: 0 } })
-  eq(flatText(hot), "[CPU:91% · RAM:85% · NET:↓5.0M ↑0B]")
+  eq(flatText(hot), "[CPU:91% · RAM:85% · NET:↓5.00M ↑0.00K]")
   eq(hot[2].tone, "danger")
   eq(hot[5].tone, "danger")
   eq(hot[8].tone, "success")
 
-  eq(formatNetwork({ down: 0, up: 0 }), "↓0B ↑0B")
-  eq(formatNetwork({ down: 65.7, up: 161.4 }), "↓66B ↑161B")
+  eq(formatNetwork({ down: 0, up: 0 }), "↓0.00K ↑0.00K")
+  eq(formatNetwork({ down: 65.7, up: 161.4 }), "↓0.06K ↑0.16K")
   eq(formatNetwork(null), "↓— ↑—")
   eq(buildPromptLine({ cpu: 1, ram: 1, net: { down: 0, up: 0 } })[8].tone, "muted")
 })
@@ -603,9 +607,9 @@ test("prompt line keeps brackets balanced and drops fields whole when narrow", (
   eq(flatText(buildPromptLine(view, { width: 8 })), "[CPU:3…]")
 
   const full = { cpu: 37, ram: 62, net: { down: 1.2 * 1024 * 1024, up: 240 * 1024 } }
-  eq(displayWidth(flatText(buildPromptLine(full))), 37)
-  eq(flatText(buildPromptLine(full, { width: 37 })), "[CPU:37% · RAM:62% · NET:↓1.2M ↑240K]")
-  eq(flatText(buildPromptLine(full, { width: 36 })), "[CPU:37% · RAM:62%]")
+  eq(displayWidth(flatText(buildPromptLine(full))), 38)
+  eq(flatText(buildPromptLine(full, { width: 38 })), "[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]")
+  eq(flatText(buildPromptLine(full, { width: 37 })), "[CPU:37% · RAM:62%]")
   eq(flatText(buildPromptLine(full, { width: 18 })), "[CPU:37%]")
 
   const stale = buildPromptLine({ ...view, stale: true }, { width: 8 })
