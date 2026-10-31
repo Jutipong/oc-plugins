@@ -184,9 +184,10 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   muted gray when the footer's own session is idle). Labels are muted, values
   use the 50/80 threshold tone, brackets and ` · ` are faint; missing meters
   render `—`; stale values prefix `! `. The speed field is toned by tier:
-  green ≥ 30 tok/s, amber 10–29, red < 10 while generating; it is the first
-  field dropped when narrow (then `M`, then `W`), keeping the brackets
-  balanced. Non-ready states are `Go …` / `Go —` / `Go !` (no speed field).
+  green ≥ 100 tok/s (deep green #4CAF50 from 150), amber 60–99, red < 60
+  while generating; it is the first field dropped when narrow (then `M`, then
+  `W`), keeping the brackets balanced. Non-ready states are `Go …` / `Go —` /
+  `Go !` (no speed field).
 - **Data source**: `GET {console}/api/go/status` (base
   `https://opencode.ai/console`, env/option overridable). Response is nullable
   (no subscription): `access.meters.{fiveHour,week,month}` each

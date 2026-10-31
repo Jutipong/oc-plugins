@@ -4,7 +4,7 @@ OpenCode **Go** plan usage — plus a live **output speed** meter — as a singl
 line in the OpenCode V2 CLI **prompt footer**:
 
 ```text
-[H:92% · W:45% · M:44% · ⚡45 tok/s]
+[H:92% · W:45% · M:44% · ⚡120 tok/s]
 ```
 
 - `H` — rolling 5-hour meter, `W` — weekly, `M` — monthly (same order as the
@@ -13,11 +13,12 @@ line in the OpenCode V2 CLI **prompt footer**:
   50%, yellow 50–79%, red 80% and above. The brackets and `·` separators stay
   faint and the `H:`/`W:`/`M:` labels stay muted, so the numbers are the
   loudest part of the line.
-- `⚡45 tok/s` — the live generation speed of the session in the current
+- `⚡120 tok/s` — the live generation speed of the session in the current
   footer. The field is always present while the meters row is live: it shows
   `⚡0 tok/s` in muted gray when the session is idle, and the value is toned
-  by speed while generating: **green** ≥ 30 tok/s, **amber** 10–29 tok/s,
-  **red** < 10 tok/s. It is the first field dropped on narrow terminals.
+  by speed while generating: **green** ≥ 100 tok/s, **deep green** ≥ 150 tok/s
+  (fixed `#4CAF50` in both color modes), **amber** 60–99 tok/s, **red** < 60
+  tok/s. It is the first field dropped on narrow terminals.
   It is an estimate: the runtime exposes no token counters mid-stream, so the
   plugin converts streamed delta characters with a chars-per-token factor
   (~3.5 default; Thai text packs ~2.4). Set `tpsFactor` if your language

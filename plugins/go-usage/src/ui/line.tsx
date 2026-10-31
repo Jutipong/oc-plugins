@@ -10,6 +10,7 @@ const MOLE_RGBA = Object.fromEntries(
 
 /** Map a semantic model tone to a resolved theme token, or Mole's fixed palette. */
 function toneColor(theme, tone, colorMode = "mole") {
+  if (tone === "hot") return MOLE_RGBA.deepGreen // fixed in both color modes
   if (colorMode === "mole") {
     if (tone === "faint" || tone === "muted") return MOLE_RGBA.muted
     if (tone === "border") return MOLE_RGBA.border

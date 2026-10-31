@@ -64,11 +64,12 @@ export function formatTps(value) {
   return number < 9.95 ? number.toFixed(1) : String(Math.round(number))
 }
 
-/** Speed buckets: >= 30 tokens/s success, >= 10 warning, else danger. */
+/** Speed buckets: >= 150 hot, >= 100 success, >= 60 warning, else danger. */
 export function toneForTps(value) {
   const number = toNumber(value) ?? 0
-  if (number >= 30) return "success"
-  if (number >= 10) return "warning"
+  if (number >= 150) return "hot"
+  if (number >= 100) return "success"
+  if (number >= 60) return "warning"
   return "danger"
 }
 
