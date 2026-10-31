@@ -180,13 +180,13 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   Entry `tui.ts` → `src/entry.tsx` (`Plugin.define({ id: "go-usage", ... })`).
   No sidebar/frame/bars.
 - **Line**: `[H:92% · W:45% · M:44% · ⚡45 tok/s]` (H rolling 5 h, W weekly,
-  M monthly; `⚡n tok/s` only while the footer's own session is generating).
-  Labels are muted, values use the 50/80 threshold tone, brackets and ` · ` are
-  faint; missing meters render `—`; stale values prefix `! `. The speed field
-  is toned by tier: green ≥ 30 tok/s, amber 10–29, red < 10; it hides when the
-  stream goes quiet and is the first field dropped when narrow (then `M`, then
-  `W`), keeping the brackets balanced. Non-ready states are `Go …` / `Go —` /
-  `Go !` (no speed field).
+  M monthly; `⚡n tok/s` is always present on the ready row — `⚡0 tok/s` in
+  muted gray when the footer's own session is idle). Labels are muted, values
+  use the 50/80 threshold tone, brackets and ` · ` are faint; missing meters
+  render `—`; stale values prefix `! `. The speed field is toned by tier:
+  green ≥ 30 tok/s, amber 10–29, red < 10 while generating; it is the first
+  field dropped when narrow (then `M`, then `W`), keeping the brackets
+  balanced. Non-ready states are `Go …` / `Go —` / `Go !` (no speed field).
 - **Data source**: `GET {console}/api/go/status` (base
   `https://opencode.ai/console`, env/option overridable). Response is nullable
   (no subscription): `access.meters.{fiveHour,week,month}` each

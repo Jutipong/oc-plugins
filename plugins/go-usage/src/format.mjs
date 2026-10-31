@@ -53,12 +53,14 @@ export function toneForMeter(percentValue) {
 }
 
 /**
- * Live output speed -> compact label: `"45"`, `"7.4"` below 10, `"—"` when
- * unknown. One decimal only under 10 so the cell count stays small.
+ * Live output speed -> compact label: `"45"`, `"7.4"` below 10, `"0"` when
+ * idle and `"—"` when unusable. One decimal only under 10 so the cell count
+ * stays small.
  */
 export function formatTps(value) {
   const number = toNumber(value)
-  if (number == null || number <= 0) return "—"
+  if (number == null) return "—"
+  if (number <= 0) return "0"
   return number < 9.95 ? number.toFixed(1) : String(Math.round(number))
 }
 

@@ -171,8 +171,8 @@ test("tone buckets are shared across the CLI plugins (50 / 80)", () => {
 
 test("speed label keeps one decimal below 10 and rounds above it", () => {
   eq(formatTps(null), "—")
-  eq(formatTps(0), "—")
-  eq(formatTps(-3), "—")
+  eq(formatTps(0), "0")
+  eq(formatTps(-3), "0")
   eq(formatTps(0.44), "0.4")
   eq(formatTps(7.44), "7.4")
   eq(formatTps(9.94), "9.9")
@@ -334,8 +334,23 @@ test("normalizeStatus shapes the footer data", () => {
 
 test("prompt line renders bracketed H/W/M with faint labels and toned values", () => {
   const line = buildPromptLine(goStatusView())
-  eq(flatText(line), "[H:92% · W:45% · M:44%]")
-  eq(line.map((segment) => segment.text), ["[", "H:", "92%", " · ", "W:", "45%", " · ", "M:", "44%", "]"])
+  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡0 tok/s]")
+  eq(line.map((segment) => segment.text), [
+    "[",
+    "H:",
+    "92%",
+    " · ",
+    "W:",
+    "45%",
+    " · ",
+    "M:",
+    "44%",
+    " · ",
+    "⚡",
+    "0",
+    " tok/s",
+    "]",
+  ])
   eq(line.map((segment) => segment.tone), [
     "faint",
     "muted",
@@ -347,25 +362,29 @@ test("prompt line renders bracketed H/W/M with faint labels and toned values", (
     "muted",
     "success",
     "faint",
+    "muted",
+    "muted",
+    "muted",
+    "faint",
   ])
 })
 
 test("prompt line uses muted placeholders for missing meters", () => {
   const status = normalizeStatus({ product: "go", access: { meters: { fiveHour: null, week: null, month: null } } }, NOW)
   const line = buildPromptLine({ phase: "ready", status })
-  eq(flatText(line), "[H:— · W:— · M:—]")
+  eq(flatText(line), "[H:— · W:— · M:— · ⚡0 tok/s]")
   eq(line[1].tone, "muted")
   eq(line[2].tone, "muted")
   eq(line[4].tone, "muted")
   eq(line[5].tone, "muted")
 
   const partial = normalizeStatus({ product: "go", access: { meters: { fiveHour: { usedMicroCents: 1, limitMicroCents: 2 } } } }, NOW)
-  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:—]")
+  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:— · ⚡0 tok/s]")
 })
 
 test("prompt line marks stale values with a warning prefix", () => {
   const line = buildPromptLine(goStatusView({ stale: true, error: "HTTP 500" }))
-  eq(flatText(line), "! [H:92% · W:45% · M:44%]")
+  eq(flatText(line), "! [H:92% · W:45% · M:44% · ⚡0 tok/s]")
   eq(line[0].tone, "warning")
   eq(line[1].text, "[")
   eq(line[3].tone, "danger")
@@ -399,8 +418,12 @@ test("prompt line appends the live speed field with tier tones", () => {
   eq(flatText(buildPromptLine(goStatusView({ speed: 4.26 }))), "[H:92% · W:45% · M:44% · ⚡4.3 tok/s]")
   eq(buildPromptLine(goStatusView({ speed: 4.26 }))[11].tone, "danger")
 
-  eq(flatText(buildPromptLine(goStatusView({ speed: null }))), "[H:92% · W:45% · M:44%]")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 0 }))), "[H:92% · W:45% · M:44%]")
+  const idle = buildPromptLine(goStatusView({ speed: null }))
+  eq(flatText(idle), "[H:92% · W:45% · M:44% · ⚡0 tok/s]")
+  eq(idle[11].text, "0")
+  eq(idle[11].tone, "muted")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 0 }))), "[H:92% · W:45% · M:44% · ⚡0 tok/s]")
+  eq(buildPromptLine(goStatusView({ speed: 0 }))[11].tone, "muted")
 })
 
 test("speed only renders on the ready row and drops first when narrow", () => {
@@ -411,6 +434,10 @@ test("speed only renders on the ready row and drops first when narrow", () => {
   eq(flatText(buildPromptLine(view, { width: 35 })), "[H:92% · W:45% · M:44% · ⚡45 tok/s]")
   eq(flatText(buildPromptLine(view, { width: 34 })), "[H:92% · W:45% · M:44%]")
   eq(flatText(buildPromptLine(view, { width: 22 })), "[H:92% · W:45%]")
+
+  const idle = goStatusView({ speed: null })
+  eq(flatText(buildPromptLine(idle, { width: 34 })), "[H:92% · W:45% · M:44% · ⚡0 tok/s]")
+  eq(flatText(buildPromptLine(idle, { width: 33 })), "[H:92% · W:45% · M:44%]")
 })
 
 test("speedForSession only returns the footer session's own live rate", () => {

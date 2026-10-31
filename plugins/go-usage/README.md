@@ -14,9 +14,10 @@ line in the OpenCode V2 CLI **prompt footer**:
   faint and the `H:`/`W:`/`M:` labels stay muted, so the numbers are the
   loudest part of the line.
 - `⚡45 tok/s` — the live generation speed of the session in the current
-  footer, only while it is streaming. The value is toned by speed: **green**
-  ≥ 30 tok/s, **amber** 10–29 tok/s, **red** < 10 tok/s. It disappears when
-  the session goes quiet and is the first field dropped on narrow terminals.
+  footer. The field is always present while the meters row is live: it shows
+  `⚡0 tok/s` in muted gray when the session is idle, and the value is toned
+  by speed while generating: **green** ≥ 30 tok/s, **amber** 10–29 tok/s,
+  **red** < 10 tok/s. It is the first field dropped on narrow terminals.
   It is an estimate: the runtime exposes no token counters mid-stream, so the
   plugin converts streamed delta characters with a chars-per-token factor
   (~3.5 default; Thai text packs ~2.4). Set `tpsFactor` if your language
@@ -107,9 +108,10 @@ Debug logs: `~/.config/opencode/plugins/go-usage-debug.log` (truncated at
 | `Go …`                      | First fetch in flight                                 |
 | `Go —`                      | No session yet, or the account has no Go subscription |
 | `Go !`                      | Fetch failed and there are no cached values           |
-| `[H:… · W:… · M:…]`         | Live values                                           |
 | `[H:… · W:… · M:… · ⚡n tok/s]` | Live values + this session is generating           |
-| `! [H:… · W:… · M:…]`       | Refresh failed; last known values are kept            |
+| `[H:… · W:… · M:… · ⚡0 tok/s]` | Live values, session idle (speed muted)            |
+| `! [H:… · W:… · M:… · ⚡n tok/s]` | Refresh failed; last known values are kept       |
+| `[H:… · W:…]`               | Too narrow: the speed field, then `M`, were dropped   |
 
 ## How it gets the data
 

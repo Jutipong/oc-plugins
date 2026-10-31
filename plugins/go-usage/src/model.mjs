@@ -2,9 +2,10 @@
 //
 // The prompt footer is a single narrow row, so the model renders one short
 // `[H:92% · W:45% · M:44%]` line (H = rolling 5h, W = weekly, M = monthly)
-// with per-meter threshold tones and faint brackets/separators. While the
-// session streams, a trailing `⚡45 tok/s` field shows the live rate, toned
-// green/amber/red by speed. Pure so the harness can assert every state.
+// with per-meter threshold tones and faint brackets/separators. A trailing
+// `⚡45 tok/s` field always shows the live rate in the ready row (`⚡0 tok/s`,
+// muted, while the session is idle), toned green/amber/red by speed. Pure so
+// the harness can assert every state.
 
 import { displayWidth, formatReset, formatTps, toneForMeter, toneForTps, toNumber, truncate } from "./format.mjs"
 
@@ -105,10 +106,12 @@ export function buildPromptLine(view = {}, options = {}) {
         ? [seg(`${prefix}:`, "muted"), seg(meter.badge, toneForMeter(meter.percent))]
         : [seg(`${prefix}:`, "muted"), seg("—", "muted")]
     })
-    const speed = toNumber(view.speed)
-    if (speed != null && speed > 0) {
-      groups.push([seg("⚡", "muted"), seg(formatTps(speed), toneForTps(speed)), seg(" tok/s", "muted")])
-    }
+    const speed = toNumber(view.speed) ?? 0
+    groups.push([
+      seg("⚡", "muted"),
+      seg(formatTps(speed), speed > 0 ? toneForTps(speed) : "muted"),
+      seg(" tok/s", "muted"),
+    ])
     const prefix = view.stale ? [seg("! ", "warning")] : []
     const budget = Math.max(0, width - lineWidth(prefix))
     return [...prefix, ...bracketLine(groups, budget)]
