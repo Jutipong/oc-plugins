@@ -215,7 +215,7 @@ function snapshotSignature(snapshot) {
 
 export function createCollector({
   intervalMs = DEFAULT_INTERVAL_MS,
-  network = true,
+  network = false,
   logger,
   platform = process.platform,
   exec = defaultExec,
@@ -227,7 +227,7 @@ export function createCollector({
   env = globalThis.process?.env ?? {},
 } = {}) {
   const tickMs = Math.max(500, toNumber(intervalMs) ?? DEFAULT_INTERVAL_MS)
-  const netEnabled = network !== false
+  const netEnabled = network === true
 
   let snapshot = { cpu: null, ram: null, stale: false, error: null, updatedAt: 0 }
   if (netEnabled) snapshot.net = null

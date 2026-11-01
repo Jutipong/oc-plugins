@@ -1,11 +1,15 @@
 # system-status
 
-CPU load, RAM usage and network throughput as one line in the prompt footer
-(`prompt.footer.status`), next to `go-usage`:
+CPU load, RAM usage and (optionally) network throughput as one line in the
+prompt footer (`prompt.footer.status`), next to `go-usage`:
 
 ```text
-[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]
+[CPU:37% · RAM:62%]
+[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]   # network: true
 ```
+
+`NET` is **off by default** (it spawns `netstat`); enable it with
+`"network": true` or `SYSTEM_STATUS_NETWORK=1`.
 
 - `CPU` — overall busy time across all cores (smoothed, 0–100%).
 - `RAM` — used physical memory (0–100%).
@@ -51,8 +55,9 @@ slow probe can never stack a second pass.
 
 Sampling is reference-counted: it starts when the row mounts and stops a few
 seconds after it unmounts, so nothing runs while you are on the home screen. No
-network requests, no storage, no long-lived processes, no PowerShell: the only
-subprocess is the native `netstat`, about 90 ms per sample.
+network requests, no storage, no long-lived processes, no PowerShell. With
+`network: true` the only extra subprocess is the native `netstat`, about 90 ms
+per sample; with the default `false` the network probe is skipped entirely.
 
 ## Install
 
@@ -92,7 +97,7 @@ variables are fallbacks (options win).
 | Option | Env | Default | Meaning |
 | --- | --- | --- | --- |
 | `interval` | `SYSTEM_STATUS_INTERVAL` | `2` | Seconds between samples (clamped 1–10) |
-| `network` | `SYSTEM_STATUS_NETWORK` | `true` | Show `NET:↓ / ↑` throughput; `false` / `0` / `off` hides the field and skips the subprocess entirely |
+| `network` | `SYSTEM_STATUS_NETWORK` | `false` | Show `NET:↓ / ↑` throughput; `true` / `1` / `yes` enables it, anything else hides the field and skips the subprocess entirely |
 | `colorMode` | `SYSTEM_STATUS_COLOR_MODE` | `"mole"` | `mole` (fixed palette) / `theme` |
 | `debug` | `SYSTEM_STATUS_DEBUG=1` | `false` | Log to `system-status-debug.log` |
 
@@ -103,13 +108,16 @@ Debug logs: `~/.config/opencode/plugins/system-status-debug.log`
 
 | Row shows | Meaning |
 | --- | --- |
-| `[CPU:— · RAM:— · NET:↓— ↑—]` | Before the first sample |
-| `[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]` | Live values |
-| `! [CPU:37% · RAM:62% · NET:↓1.20M ↑240K]` | Collector error; previous values kept |
+| `[CPU:— · RAM:—]` | Before the first sample (default, network off) |
+| `[CPU:37% · RAM:62%]` | Live values, default |
+| `[CPU:37% · RAM:62% · NET:↓— ↑—]` | `network: true`, before the first network sample |
+| `[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]` | `network: true`, live values |
+| `! [CPU:37% · RAM:62%]` | Collector error; previous values kept |
 | `[CPU:37% · RAM:62%]` | `network: false`, or too narrow for three fields |
 
-The full line is 38 cells at default width 40; below that the trailing field is
-dropped whole (`NET` first, then `RAM`), and the brackets stay balanced.
+The default line is 19 cells at width 40; with `network: true` the full line is
+38 cells. Below the available width the trailing field is dropped whole (`NET`
+first, then `RAM`), and the brackets stay balanced.
 
 ## Tests
 

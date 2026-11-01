@@ -11,10 +11,6 @@ export function truthyFlag(value) {
   return value === true || value === "1" || value === "true" || value === "yes"
 }
 
-function falsyFlag(value) {
-  return value === false || value === 0 || value === "0" || value === "false" || value === "no" || value === "off"
-}
-
 /**
  * Merge cli.json `options` with SYSTEM_STATUS_* environment variables.
  * Options win.
@@ -32,7 +28,7 @@ export function resolveOptions({ options = {}, env = {} } = {}) {
       : COLOR_MODES.includes(env.SYSTEM_STATUS_COLOR_MODE)
         ? env.SYSTEM_STATUS_COLOR_MODE
         : "mole",
-    network: !falsyFlag(options.network ?? env.SYSTEM_STATUS_NETWORK),
+    network: truthyFlag(options.network ?? env.SYSTEM_STATUS_NETWORK),
     debug: options.debug === true || truthyFlag(env.SYSTEM_STATUS_DEBUG),
   }
 }

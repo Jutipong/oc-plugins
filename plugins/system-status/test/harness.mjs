@@ -333,6 +333,7 @@ await testAsync("collector samples CPU/RAM/NET, publishes, and stays reference-c
   }
   const collector = createCollector({
     intervalMs: 500,
+    network: true,
     platform: "darwin",
     exec,
     cpus: fakeCpus,
@@ -411,6 +412,7 @@ await testAsync("one tick publishes CPU, RAM and NET together", async () => {
   let netStep = 0
   const collector = createCollector({
     intervalMs: 500,
+    network: true,
     platform: "darwin",
     exec: async (command) => {
       if (command.endsWith("vm_stat")) {
@@ -493,6 +495,7 @@ await testAsync("collector samples NET on Windows from `netstat -e`", async () =
   const calls = []
   const collector = createCollector({
     intervalMs: 500,
+    network: true,
     platform: "win32",
     env: { SystemRoot: "C:\\Windows" },
     exec: async (command, args = []) => {
@@ -659,11 +662,13 @@ test("option and env resolution uses SYSTEM_STATUS_*", () => {
   eq(resolveOptions({ options: { colorMode: "theme" } }).colorMode, "theme")
   eq(resolveOptions({ env: { SYSTEM_STATUS_COLOR_MODE: "theme" } }).colorMode, "theme")
   eq(resolveOptions({ options: { colorMode: "wat" } }).colorMode, "mole")
-  eq(resolveOptions({}).network, true)
+  eq(resolveOptions({}).network, false)
   eq(resolveOptions({ options: { network: true } }).network, true)
   eq(resolveOptions({ options: { network: false } }).network, false)
   eq(resolveOptions({ env: { SYSTEM_STATUS_NETWORK: "0" } }).network, false)
   eq(resolveOptions({ env: { SYSTEM_STATUS_NETWORK: "off" } }).network, false)
+  eq(resolveOptions({ env: { SYSTEM_STATUS_NETWORK: "1" } }).network, true)
+  eq(resolveOptions({ env: { SYSTEM_STATUS_NETWORK: "true" } }).network, true)
   eq(resolveOptions({ options: { network: true }, env: { SYSTEM_STATUS_NETWORK: "0" } }).network, true)
   eq(resolveOptions({ options: { network: false }, env: { SYSTEM_STATUS_NETWORK: "1" } }).network, false)
   eq(resolveOptions({}).debug, false)

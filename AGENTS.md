@@ -134,8 +134,9 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   caps itself at `DEFAULT_WIDTH` 40. No commands, no storage, no network
   requests. Entry `tui.ts` → `src/entry.tsx`
   (`Plugin.define({ id: "system-status", setup(ctx) })`).
-- **Line**: `[CPU:37% · RAM:62% · NET:↓1.20M ↑240K]` (38 cells at default
-  width 40). Labels `CPU:`/`RAM:`/`NET:` are muted, values use the threshold
+- **Line**: default `[CPU:37% · RAM:62%]` (19 cells at default width 40);
+  `network: true` appends ` · NET:↓1.20M ↑240K` (38 cells). Labels
+  `CPU:`/`RAM:`/`NET:` are muted, values use the threshold
   tone (50/80); network shows `↓`/`↑` in bytes/s with `K` as the smallest
   unit (never raw bytes), at most two decimals below 10 (`0.50K`, `3.40K`,
   `1.20M`) and whole numbers from 10 up (`12K`, `340M`), toned by activity
@@ -143,7 +144,8 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   separators are faint. Missing values render `—`
   (`NET:↓— ↑—` while the first counter baseline is pending); collector errors
   prefix `! `. Clipping drops the trailing field whole (`NET`, then `RAM`) and
-  keeps the brackets balanced. `network: false` removes the field. There is
+  keeps the brackets balanced. The network field is opt-in: `network: false`
+  (the default) removes it. There is
   **no keyboard-language field**: the probe cost a PowerShell spawn (~3 s CPU,
   73 MB) per sample on Windows and was removed on both platforms.
 - **Collector** (`src/collector.mjs`, reference-counted): starts on the first
@@ -152,8 +154,8 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   stacks): CPU = `os.cpus()` deltas with an EMA (0.35) and a denominator floor
   at the wall-clock window; RAM on macOS = `vm_stat` active + wired + compressed
   / elsewhere `total - freemem`, sampled every `RAM_INTERVAL_MS` (5 s) on both
-  platforms and reused in between; network = default-route interface
-  byte-counter deltas every tick (macOS `netstat -ibn` + `route -n get default`
+  platforms and reused in between; network (only when enabled) = default-route
+  interface byte-counter deltas every tick (macOS `netstat -ibn` + `route -n get default`
   cached 60 s, Linux `/proc/net/dev` + `/proc/net/route`, Windows `netstat -e`
   — whole IP stack, no per-interface split). A new baseline (start / interface
   switch) reports no rate for one tick. The pass publishes **one** snapshot,
@@ -163,8 +165,8 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   There is **no temperature source** (macOS 26+ removed the `powermetrics smc`
   sampler); the plugin does not spawn sensor helpers.
 - **Options/env**: `interval` / `SYSTEM_STATUS_INTERVAL` (2 s, 1–10),
-  `network` / `SYSTEM_STATUS_NETWORK` (`true`; `false`/`0`/`off` hides it and
-  skips the subprocess),
+  `network` / `SYSTEM_STATUS_NETWORK` (`false` default; `true`/`1`/`yes`
+  enables it and spawns the probe),
   `colorMode` / `SYSTEM_STATUS_COLOR_MODE` (`mole` default / `theme`),
   `debug` / `SYSTEM_STATUS_DEBUG=1`
   (`~/.config/opencode/plugins/system-status-debug.log`, 512 KB truncate).
