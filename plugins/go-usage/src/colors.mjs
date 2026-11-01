@@ -4,6 +4,7 @@
 export const MOLE_PALETTE = {
   success: [165, 214, 167], // #A5D6A7
   deepGreen: [76, 175, 80], // #4CAF50
+  draculaPink: [255, 121, 198], // #FF79C6
   warning: [255, 169, 77], // #FFA94D (orange)
   error: [255, 95, 95], // #FF5F5F
   accent: [199, 159, 215], // #C79FD7

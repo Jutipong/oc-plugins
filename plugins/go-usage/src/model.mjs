@@ -4,7 +4,7 @@
 // `[H:92% · W:45% · M:44%]` line (H = rolling 5h, W = weekly, M = monthly)
 // with per-meter threshold tones and faint brackets/separators. A trailing
 // `⚡45 tok/s` field always shows the live rate in the ready row (`⚡0 tok/s`,
-// muted, while the session is idle), toned green/amber/red by speed. Pure so
+// muted, while the session is idle), toned green/amber/red/pink by speed. Pure so
 // the harness can assert every state.
 
 import { displayWidth, formatReset, formatTps, toneForMeter, toneForTps, toNumber, truncate } from "./format.mjs"

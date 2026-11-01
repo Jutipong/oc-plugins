@@ -181,7 +181,7 @@ test("speed label keeps one decimal below 10 and rounds above it", () => {
   eq(formatTps(120), "120")
 })
 
-test("speed buckets: >= 150 hot, >= 100 green, >= 60 amber, below that red", () => {
+test("speed buckets: >= 200 pink, >= 150 hot, >= 100 green, >= 60 amber, below that red", () => {
   eq(toneForTps(0), "danger")
   eq(toneForTps(59.9), "danger")
   eq(toneForTps(60), "warning")
@@ -189,7 +189,9 @@ test("speed buckets: >= 150 hot, >= 100 green, >= 60 amber, below that red", () 
   eq(toneForTps(100), "success")
   eq(toneForTps(149.9), "success")
   eq(toneForTps(150), "hot")
-  eq(toneForTps(900), "hot")
+  eq(toneForTps(199.9), "hot")
+  eq(toneForTps(200), "pink")
+  eq(toneForTps(900), "pink")
 })
 
 test("chars-per-token factor clamps to 1-8 with a 3.5 default", () => {
@@ -419,6 +421,8 @@ test("prompt line appends the live speed field with tier tones", () => {
   eq(buildPromptLine(goStatusView({ speed: 70.4 }))[11].tone, "warning")
   eq(flatText(buildPromptLine(goStatusView({ speed: 180.4 }))), "[H:92% · W:45% · M:44% · ⚡180 tok/s]")
   eq(buildPromptLine(goStatusView({ speed: 180.4 }))[11].tone, "hot")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 250.4 }))), "[H:92% · W:45% · M:44% · ⚡250 tok/s]")
+  eq(buildPromptLine(goStatusView({ speed: 250.4 }))[11].tone, "pink")
   eq(flatText(buildPromptLine(goStatusView({ speed: 4.26 }))), "[H:92% · W:45% · M:44% · ⚡4.3 tok/s]")
   eq(buildPromptLine(goStatusView({ speed: 4.26 }))[11].tone, "danger")
 
@@ -851,6 +855,7 @@ test("option and env resolution uses GO_USAGE_*", () => {
 test("mole palette matches the other CLI plugins", () => {
   eq(MOLE_PALETTE.success, [165, 214, 167])
   eq(MOLE_PALETTE.deepGreen, [76, 175, 80])
+  eq(MOLE_PALETTE.draculaPink, [255, 121, 198])
   eq(MOLE_PALETTE.warning, [255, 169, 77])
   eq(MOLE_PALETTE.error, [255, 95, 95])
   eq(MOLE_PALETTE.accent, [199, 159, 215])
@@ -977,6 +982,7 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(ui, "RGBA.fromInts")
   includes(ui, "MOLE_PALETTE")
   includes(ui, "deepGreen", "the hot tier must resolve to the deep green")
+  includes(ui, "draculaPink", "the pink tier must resolve to Dracula pink")
 })
 
 test("/go-usage login shares the already-connected guard with /go-usage-login", () => {
