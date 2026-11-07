@@ -75,6 +75,34 @@ export default Plugin.define({
     // `{ [sessionID]: tokensPerSecond }` for sessions that are streaming now.
     const speeds = createObservable({})
 
+    // Mirror the three plan meters to the desk box's bridge, when one runs.
+    // The box is a local convenience: every failure is ignored, and it never
+    // slows a fetch down.
+    const publishUsage = (status) => {
+      try {
+        const percent = (key) =>
+          status && Array.isArray(status.meters)
+            ? status.meters.find((entry) => entry.key === key)?.meter?.percent
+            : undefined
+        const body = {
+          hour: percent("rolling") ?? null,
+          week: percent("weekly") ?? null,
+          month: percent("monthly") ?? null,
+        }
+        if (body.hour == null && body.week == null && body.month == null && status) return
+        const send = fetchImpl ?? (typeof fetch === "function" ? fetch : null)
+        if (!send) return
+        void send("http://127.0.0.1:7331/v1/usage", {
+          method: "POST",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify(body),
+        }).catch(() => {})
+      } catch {
+        // The footer must not care what happens on the other end of this.
+      }
+    }
+    publishUsage(initialView.status)
+
     let inFlight = null
     let loginTask = null
     let disposed = false
@@ -111,6 +139,7 @@ export default Plugin.define({
           const fetchedAt = Date.now()
           const status = normalizeStatus(outcome.payload, fetchedAt)
           state.set({ phase: "ready", status, stale: false, fetchedAt, error: null })
+          publishUsage(status)
           void updateCacheDoc((draft) => {
             draft.payload = outcome.payload
             draft.fetchedAt = fetchedAt
@@ -121,6 +150,7 @@ export default Plugin.define({
         if (outcome.kind === "absent") {
           const fetchedAt = Date.now()
           state.set({ phase: "absent", status: null, stale: false, fetchedAt, error: null })
+          publishUsage(null)
           void updateCacheDoc((draft) => {
             draft.payload = null
             draft.fetchedAt = fetchedAt
@@ -130,11 +160,13 @@ export default Plugin.define({
         }
         if (outcome.kind === "disconnected") {
           state.set({ phase: "checking", status: null, stale: false, fetchedAt: 0, error: null })
+          publishUsage(null)
           return null
         }
         if (outcome.kind === "unauthorized") {
           state.set({ phase: "disconnected", status: null, stale: false, fetchedAt: 0, error: "session expired" })
-          if (manual) toast("error", "Console session expired — run /go-usage login", 3500)
+          publishUsage(null)
+          if (manual) toast("error", "Console session expired - run /go-usage login", 3500)
           return null
         }
         const message = outcome.message ?? (outcome.status ? `HTTP ${outcome.status}` : "network error")
