@@ -1,7 +1,6 @@
 /** @jsxImportSource @opentui/solid */
 import { Plugin } from "@opencode/plugin/tui"
 import { createAuthManager } from "./auth.mjs"
-import { createCacheTracker } from "./cache.mjs"
 import { resolveCommand } from "./commands.mjs"
 import { createLogger } from "./log.mjs"
 import { buildDetailLines } from "./model.mjs"
@@ -10,7 +9,7 @@ import { resolveOptions } from "./options.mjs"
 import { createUsageService } from "./service.mjs"
 import { normalizeStatus } from "./status.mjs"
 import { createObservable } from "./store.mjs"
-import { createSpeedTracker } from "./tps.mjs"
+import { SPEED_TICK_MS, createUsageFeed } from "./usage-events.mjs"
 import { PromptUsage } from "./ui/line.tsx"
 
 const NO_FETCH = () => Promise.reject(new Error("fetch unavailable"))
@@ -72,16 +71,26 @@ export default Plugin.define({
           ? { phase: "absent", status: null, stale: false, fetchedAt: cachedAt, error: null }
           : { phase: "loading", status: null, stale: false, fetchedAt: 0, error: null }
       : { phase: "checking", status: null, stale: false, fetchedAt: 0, error: null }
+    /** One footer view state; `status`/`fetchedAt` only change on a fetch. */
+    const makeView = (phase, extra = {}) => ({
+      phase,
+      status: null,
+      stale: false,
+      fetchedAt: 0,
+      error: null,
+      ...extra,
+    })
     const state = createObservable(initialView)
     // `{ [sessionID]: tokensPerSecond }` for sessions that are streaming now.
     const speeds = createObservable({})
     // `{ [sessionID]: { percent, input, read, write, output } }` per session.
     const caches = createObservable({})
 
-    // Mirror the three plan meters to the desk box's bridge, when one runs.
-    // The box is a local convenience: every failure is ignored, and it never
-    // slows a fetch down.
+    // Mirror the three plan meters to the desk box's bridge, when one runs and
+    // the bridge is enabled. The box is a local convenience: every failure is
+    // ignored, and it never slows a fetch down.
     const publishUsage = (status) => {
+      if (!options.bridge || !fetchImpl) return
       try {
         const percent = (key) =>
           status && Array.isArray(status.meters)
@@ -93,9 +102,7 @@ export default Plugin.define({
           month: percent("monthly") ?? null,
         }
         if (body.hour == null && body.week == null && body.month == null && status) return
-        const send = fetchImpl ?? (typeof fetch === "function" ? fetch : null)
-        if (!send) return
-        void send("http://127.0.0.1:7331/v1/usage", {
+        void fetchImpl(options.bridgeUrl, {
           method: "POST",
           headers: { "content-type": "application/json" },
           body: JSON.stringify(body),
@@ -126,11 +133,11 @@ export default Plugin.define({
       if (disposed) return null
       if (!suppressAdopt) auth.adopt(readAuthDoc())
       if (!auth.connected) {
-        state.set({ phase: "checking", status: null, stale: false, fetchedAt: 0, error: null })
+        state.set(makeView("checking"))
         return null
       }
       if (!fetchImpl) {
-        state.set({ phase: "error", status: null, stale: false, fetchedAt: 0, error: "no fetch runtime" })
+        state.set(makeView("error", { error: "no fetch runtime" }))
         return null
       }
       if (inFlight) return inFlight
@@ -141,7 +148,7 @@ export default Plugin.define({
         if (outcome.kind === "ok") {
           const fetchedAt = Date.now()
           const status = normalizeStatus(outcome.payload, fetchedAt)
-          state.set({ phase: "ready", status, stale: false, fetchedAt, error: null })
+          state.set(makeView("ready", { status, fetchedAt }))
           publishUsage(status)
           void updateCacheDoc((draft) => {
             draft.payload = outcome.payload
@@ -152,7 +159,7 @@ export default Plugin.define({
         }
         if (outcome.kind === "absent") {
           const fetchedAt = Date.now()
-          state.set({ phase: "absent", status: null, stale: false, fetchedAt, error: null })
+          state.set(makeView("absent", { fetchedAt }))
           publishUsage(null)
           void updateCacheDoc((draft) => {
             draft.payload = null
@@ -162,12 +169,12 @@ export default Plugin.define({
           return null
         }
         if (outcome.kind === "disconnected") {
-          state.set({ phase: "checking", status: null, stale: false, fetchedAt: 0, error: null })
+          state.set(makeView("checking"))
           publishUsage(null)
           return null
         }
         if (outcome.kind === "unauthorized") {
-          state.set({ phase: "disconnected", status: null, stale: false, fetchedAt: 0, error: "session expired" })
+          state.set(makeView("disconnected", { error: "session expired" }))
           publishUsage(null)
           if (manual) toast("error", "Console session expired - run /go-usage login", 3500)
           return null
@@ -175,7 +182,7 @@ export default Plugin.define({
         const message = outcome.message ?? (outcome.status ? `HTTP ${outcome.status}` : "network error")
         const previous = state.get()
         if (previous.status) state.set({ ...previous, stale: true, error: message })
-        else state.set({ phase: "error", status: null, stale: false, fetchedAt: 0, error: message })
+        else state.set(makeView("error", { error: message }))
         if (manual) toast("error", `Go usage fetch failed (${message})`, 3500)
         return null
       })().finally(() => {
@@ -197,7 +204,7 @@ export default Plugin.define({
       loginEpoch += 1
       suppressAdopt = true
       auth.logout()
-      state.set({ phase: "checking", status: null, stale: false, fetchedAt: 0, error: null })
+      state.set(makeView("checking"))
       void updateCacheDoc((draft) => {
         draft.payload = null
         draft.fetchedAt = 0
@@ -359,79 +366,27 @@ export default Plugin.define({
 
     const disposers = []
 
-    // Live output speed: the runtime streams text/reasoning deltas but no
-    // token counters until a step ends, so the tracker estimates tokens per
-    // second from delta characters (see tps.mjs). Cache hit accounting reads
-    // the real counter deltas at `session.step.ended` (see cache.mjs). Both
-    // are published only when the visible value changes.
+    // Live output speed and cache hit: the runtime streams text/reasoning
+    // deltas but no token counters until a step ends (see usage-events.mjs).
     if ((options.tps || options.cache) && typeof context.data?.listen === "function") {
-      const tracker = createSpeedTracker({ charsPerToken: options.tpsCharsPerToken })
-      const cacheTracker = createCacheTracker()
-      let signature = ""
-      let cacheSignature = ""
-      const publishSpeed = () => {
-        const next = tracker.snapshot()
-        const nextSignature = JSON.stringify(next)
-        if (nextSignature === signature) return
-        signature = nextSignature
-        speeds.set(next)
-      }
-      const publishCache = () => {
-        const next = cacheTracker.snapshot()
-        const nextSignature = JSON.stringify(next)
-        if (nextSignature === cacheSignature) return
-        cacheSignature = nextSignature
-        caches.set(next)
-      }
-      const onUsageEvent = (event) => {
-        try {
-          const details = event?.details ?? event
-          const type = details?.type
-          const data = details?.data ?? {}
-          const dir = details?.location?.directory
-          const here = context.location?.directory
-          if (dir && here && dir !== here) return
-          const sid = data.sessionID
-          if (!sid) return
-          switch (type) {
-            case "session.execution.started":
-            case "session.step.started":
-              tracker.start(sid)
-              break
-            case "session.text.delta":
-            case "session.reasoning.delta": {
-              const delta = data.delta
-              if (typeof delta === "string" && delta) tracker.push(sid, delta.length)
-              break
-            }
-            case "session.step.ended":
-              if (options.cache) cacheTracker.add(sid, data.tokens, data.assistantMessageID)
-              publishCache()
-              return
-            case "session.execution.succeeded":
-            case "session.execution.failed":
-            case "session.execution.interrupted":
-            case "session.idle":
-              tracker.end(sid)
-              break
-            default:
-              return
-          }
-          publishSpeed()
-        } catch (error) {
-          log.write(`usage event failed: ${error?.message ?? error}`)
-        }
-      }
+      const feed = createUsageFeed({
+        directory: context.location?.directory,
+        tps: options.tps,
+        cache: options.cache,
+        charsPerToken: options.tpsCharsPerToken,
+        log,
+        onSpeed: (next) => speeds.set(next),
+        onCache: (next) => caches.set(next),
+      })
       try {
-        disposers.push(context.data.listen(onUsageEvent))
+        disposers.push(context.data.listen(feed.onEvent))
       } catch (error) {
         log.write(`usage listen failed: ${error?.message ?? error}`)
       }
-      const speedTimer = setInterval(publishSpeed, 500)
+      const speedTimer = options.tps ? setInterval(feed.tick, SPEED_TICK_MS) : null
       disposers.push(() => {
-        clearInterval(speedTimer)
-        tracker.dispose()
-        cacheTracker.dispose()
+        if (speedTimer) clearInterval(speedTimer)
+        feed.dispose()
       })
     }
 

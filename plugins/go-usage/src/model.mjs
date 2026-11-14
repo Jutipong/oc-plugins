@@ -1,17 +1,18 @@
 // go-usage — view state -> the prompt-footer line.
 //
 // The prompt footer is a single narrow row, so the model renders one short
-// `[H:92% · W:45% · M:44% | C:87% · ⚡103t/s]` line (H = rolling 5h, W =
+// `[H:92% · W:45% · M:44% | C: 87% · ⚡103t/s]` line (H = rolling 5h, W =
 // weekly, M = monthly, C = session cache hit) with per-field threshold tones
 // and faint brackets/separators. The cache group (`C`) and the live speed
-// group (`⚡`) are always present on the ready row when enabled, rendered
-// compactly with no padding. Pure so the harness can assert every state.
+// group (`⚡`) are always present on the ready row when enabled; both numbers
+// are padded to a fixed width so a value change never shifts the row. Pure so
+// the harness can assert every state.
 
 import {
   displayWidth,
   formatCacheBadge,
   formatReset,
-  formatTps,
+  formatTpsField,
   toneForCacheHit,
   toneForMeter,
   toneForTps,
@@ -19,8 +20,8 @@ import {
   truncate,
 } from "./format.mjs"
 
-const PROMPT_WIDTH = 40
-const PROMPT_WIDTH_CACHE = 48
+const PROMPT_WIDTH = 36
+const PROMPT_WIDTH_CACHE = 45
 
 /** Footer meters in display order; the labels mirror the Console cards. */
 export const STATUS_METERS = [
@@ -107,7 +108,7 @@ export function cacheForSession(caches, sessionID) {
   return entry && typeof entry === "object" ? entry : null
 }
 
-/** `C:87%` — this session's cache hit. */
+/** `C: 87%` — fixed width so the field never shifts the row. */
 function cacheGroup(cache) {
   const percent = toNumber(cache?.percent)
   return {
@@ -119,7 +120,7 @@ function cacheGroup(cache) {
   }
 }
 
-/** `⚡103t/s` — the live output speed of this session. */
+/** `⚡103t/s` — the number padded to a fixed width while generating. */
 function speedGroup(speed) {
   const value = toNumber(speed)
   const shown = value != null && value > 0 ? value : 0
@@ -127,7 +128,7 @@ function speedGroup(speed) {
     sep: " · ",
     parts: [
       seg("⚡", "muted"),
-      seg(formatTps(shown), shown > 0 ? toneForTps(shown) : "muted"),
+      seg(formatTpsField(shown), shown > 0 ? toneForTps(shown) : "muted"),
       seg("t/s", "muted"),
     ],
   }
@@ -143,7 +144,7 @@ function speedGroup(speed) {
  *          or `undefined` when the cache field is disabled
  *
  * options:
- *   width — max cells (default 48 with the cache field, 40 without)
+ *   width — max cells (default 45 with the cache field, 36 without)
  */
 export function buildPromptLine(view = {}, options = {}) {
   const phase = view.phase ?? "checking"

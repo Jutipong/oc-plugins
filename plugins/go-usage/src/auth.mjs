@@ -128,18 +128,36 @@ export function needsRefresh(auth, now = Date.now(), skewMs = REFRESH_SKEW_MS) {
   return expiresAt - skewMs <= (toNumber(now) ?? Date.now())
 }
 
-/** fetch + JSON with the plugin user agent. Never throws on non-JSON bodies. */
-export async function fetchJson(fetchImpl, request, userAgent) {
+/** Requests are abandoned after this long so a hung fetch cannot wedge refresh. */
+export const DEFAULT_FETCH_TIMEOUT_MS = 15_000
+
+/**
+ * fetch + JSON with the plugin user agent. Never throws on non-JSON bodies;
+ * a request that outlives `timeoutMs` is aborted (the caller sees a rejection
+ * from fetch, which the service/login flows already turn into an error state).
+ */
+export async function fetchJson(fetchImpl, request, userAgent, { timeoutMs = DEFAULT_FETCH_TIMEOUT_MS } = {}) {
   const headers = { ...request.init.headers }
   if (userAgent) headers["user-agent"] = userAgent
-  const response = await fetchImpl(request.url, { ...request.init, headers })
-  let json = null
-  try {
-    json = await response.json()
-  } catch {
-    json = null
+  const init = { ...request.init, headers }
+  let timer = null
+  if (!init.signal && Number.isFinite(timeoutMs) && timeoutMs > 0 && typeof AbortController === "function") {
+    const controller = new AbortController()
+    init.signal = controller.signal
+    timer = setTimeout(() => controller.abort(), timeoutMs)
   }
-  return { status: toNumber(response.status) ?? 0, json }
+  try {
+    const response = await fetchImpl(request.url, init)
+    let json = null
+    try {
+      json = await response.json()
+    } catch {
+      json = null
+    }
+    return { status: toNumber(response.status) ?? 0, json }
+  } finally {
+    if (timer) clearTimeout(timer)
+  }
 }
 
 function defaultDelay(ms) {

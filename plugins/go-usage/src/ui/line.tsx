@@ -72,14 +72,11 @@ export function PromptUsage(props) {
   })
 
   const line = createMemo(() =>
-    buildPromptLine(
-      {
-        ...view(),
-        speed: speedForSession(speeds(), props.sessionID),
-        cache: props.caches ? cacheForSession(caches(), props.sessionID) : undefined,
-      },
-      { width: props.width },
-    ),
+    buildPromptLine({
+      ...view(),
+      speed: speedForSession(speeds(), props.sessionID),
+      cache: props.caches ? cacheForSession(caches(), props.sessionID) : undefined,
+    }),
   )
 
   return <LineText line={line()} theme={props.context.theme} colorMode={props.colorMode} />

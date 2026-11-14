@@ -10,24 +10,27 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { displayWidth, formatCacheBadge, formatReset, formatTps, toNumber, toTime, toneForCacheHit, toneForMeter, toneForTps, truncate } from "../src/format.mjs"
+import { displayWidth, formatCacheBadge, formatReset, formatTps, formatTpsField, toNumber, toTime, toneForCacheHit, toneForMeter, toneForTps, truncate } from "../src/format.mjs"
 import { METER_KEYS, meterFromRaw, normalizeStatus } from "../src/status.mjs"
 import {
   DEFAULT_BASE_URL,
+  DEFAULT_FETCH_TIMEOUT_MS,
   absoluteUrl,
   buildDeviceCodeRequest,
   buildRefreshRequest,
   buildStatusRequest,
   buildTokenPollRequest,
   createAuthManager,
+  fetchJson,
   needsRefresh,
   parseDeviceCode,
   parseTokenOutcome,
 } from "../src/auth.mjs"
 import { createUsageService } from "../src/service.mjs"
 import { clampCharsPerToken, createSpeedTracker } from "../src/tps.mjs"
+import { SPEED_TICK_MS, createUsageFeed } from "../src/usage-events.mjs"
 import { resolveCommand } from "../src/commands.mjs"
-import { clampInterval, resolveOptions } from "../src/options.mjs"
+import { DEFAULT_BRIDGE_URL, clampInterval, normalizeBridgeUrl, resolveOptions } from "../src/options.mjs"
 import { createObservable } from "../src/store.mjs"
 import { createLogger, logPath } from "../src/log.mjs"
 import { openBrowser, openCommand } from "../src/open.mjs"
@@ -288,18 +291,21 @@ test("cache tracker ignores a re-delivered step counter", () => {
   tracker.dispose()
 })
 
-test("cache and speed fields render compact, without padding", () => {
-  eq(formatCacheBadge(null), "—")
-  eq(formatCacheBadge(3), "3%")
-  eq(formatCacheBadge(87), "87%")
+test("cache and speed fields keep a fixed width so the row never shifts", () => {
+  eq(formatCacheBadge(null), "   —")
+  eq(formatCacheBadge(3), "  3%")
+  eq(formatCacheBadge(87), " 87%")
   eq(formatCacheBadge(100), "100%")
   eq(formatCacheBadge(140), "100%")
-  eq(formatCacheBadge("x"), "—")
+  eq(formatCacheBadge("x"), "   —")
+  eq(displayWidth(formatCacheBadge(3)), displayWidth(formatCacheBadge(87)))
+  eq(displayWidth(formatCacheBadge(null)), displayWidth(formatCacheBadge(100)))
 
-  eq(formatTps(0), "0")
-  eq(formatTps(7.4), "7.4")
-  eq(formatTps(45), "45")
-  eq(formatTps(106), "106")
+  eq(formatTpsField(0), "  0")
+  eq(formatTpsField(7.4), "7.4")
+  eq(formatTpsField(45), " 45")
+  eq(formatTpsField(106), "106")
+  eq(displayWidth(formatTpsField(5)), displayWidth(formatTpsField(555)))
 
   eq(toneForCacheHit(100), "success")
   eq(toneForCacheHit(80), "success")
@@ -410,7 +416,7 @@ test("normalizeStatus shapes the footer data", () => {
 
 test("prompt line renders bracketed H/W/M with faint labels and toned values", () => {
   const line = buildPromptLine(goStatusView())
-  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡0t/s]")
+  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡  0t/s]")
   eq(line.map((segment) => segment.text), [
     "[",
     "H:",
@@ -423,7 +429,7 @@ test("prompt line renders bracketed H/W/M with faint labels and toned values", (
     "44%",
     " · ",
     "⚡",
-    "0",
+    "  0",
     "t/s",
     "]",
   ])
@@ -448,19 +454,19 @@ test("prompt line renders bracketed H/W/M with faint labels and toned values", (
 test("prompt line uses muted placeholders for missing meters", () => {
   const status = normalizeStatus({ product: "go", access: { meters: { fiveHour: null, week: null, month: null } } }, NOW)
   const line = buildPromptLine({ phase: "ready", status })
-  eq(flatText(line), "[H:— · W:— · M:— · ⚡0t/s]")
+  eq(flatText(line), "[H:— · W:— · M:— · ⚡  0t/s]")
   eq(line[1].tone, "muted")
   eq(line[2].tone, "muted")
   eq(line[4].tone, "muted")
   eq(line[5].tone, "muted")
 
   const partial = normalizeStatus({ product: "go", access: { meters: { fiveHour: { usedMicroCents: 1, limitMicroCents: 2 } } } }, NOW)
-  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:— · ⚡0t/s]")
+  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:— · ⚡  0t/s]")
 })
 
 test("prompt line marks stale values with a warning prefix", () => {
   const line = buildPromptLine(goStatusView({ stale: true, error: "HTTP 500" }))
-  eq(flatText(line), "! [H:92% · W:45% · M:44% · ⚡0t/s]")
+  eq(flatText(line), "! [H:92% · W:45% · M:44% · ⚡  0t/s]")
   eq(line[0].tone, "warning")
   eq(line[1].text, "[")
   eq(line[3].tone, "danger")
@@ -489,7 +495,7 @@ test("prompt line appends the live speed field with tier tones", () => {
   eq(line[11].tone, "success")
   eq(line[12].tone, "muted")
 
-  eq(flatText(buildPromptLine(goStatusView({ speed: 70.4 }))), "[H:92% · W:45% · M:44% · ⚡70t/s]")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 70.4 }))), "[H:92% · W:45% · M:44% · ⚡ 70t/s]")
   eq(buildPromptLine(goStatusView({ speed: 70.4 }))[11].tone, "warning")
   eq(flatText(buildPromptLine(goStatusView({ speed: 180.4 }))), "[H:92% · W:45% · M:44% · ⚡180t/s]")
   eq(buildPromptLine(goStatusView({ speed: 180.4 }))[11].tone, "hot")
@@ -499,10 +505,10 @@ test("prompt line appends the live speed field with tier tones", () => {
   eq(buildPromptLine(goStatusView({ speed: 4.26 }))[11].tone, "danger")
 
   const idle = buildPromptLine(goStatusView({ speed: null }))
-  eq(flatText(idle), "[H:92% · W:45% · M:44% · ⚡0t/s]")
-  eq(idle[11].text, "0")
+  eq(flatText(idle), "[H:92% · W:45% · M:44% · ⚡  0t/s]")
+  eq(idle[11].text, "  0")
   eq(idle[11].tone, "muted")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 0 }))), "[H:92% · W:45% · M:44% · ⚡0t/s]")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 0 }))), "[H:92% · W:45% · M:44% · ⚡  0t/s]")
   eq(buildPromptLine(goStatusView({ speed: 0 }))[11].tone, "muted")
 })
 
@@ -511,13 +517,13 @@ test("speed only renders on the ready row and drops first when narrow", () => {
   eq(flatText(buildPromptLine({ phase: "checking", speed: 45 })), "Go …")
 
   const view = goStatusView({ speed: 45.3 })
-  eq(flatText(buildPromptLine(view, { width: 32 })), "[H:92% · W:45% · M:44% · ⚡45t/s]")
-  eq(flatText(buildPromptLine(view, { width: 31 })), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(view, { width: 33 })), "[H:92% · W:45% · M:44% · ⚡ 45t/s]")
+  eq(flatText(buildPromptLine(view, { width: 32 })), "[H:92% · W:45% · M:44%]")
   eq(flatText(buildPromptLine(view, { width: 22 })), "[H:92% · W:45%]")
 
   const idle = goStatusView({ speed: null })
-  eq(flatText(buildPromptLine(idle, { width: 31 })), "[H:92% · W:45% · M:44% · ⚡0t/s]")
-  eq(flatText(buildPromptLine(idle, { width: 30 })), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(idle, { width: 33 })), "[H:92% · W:45% · M:44% · ⚡  0t/s]")
+  eq(flatText(buildPromptLine(idle, { width: 32 })), "[H:92% · W:45% · M:44%]")
 })
 
 test("speedForSession only returns the footer session's own live rate", () => {
@@ -542,7 +548,7 @@ test("cacheForSession only returns the footer session's own counters", () => {
 
 test("prompt line adds the cache field after a pipe and keeps the speed field", () => {
   const line = buildPromptLine(goStatusView({ speed: 106, cache: { percent: 87 } }))
-  eq(flatText(line), "[H:92% · W:45% · M:44% | C:87% · ⚡106t/s]")
+  eq(flatText(line), "[H:92% · W:45% · M:44% | C: 87% · ⚡106t/s]")
   eq(line.map((segment) => segment.text), [
     "[",
     "H:",
@@ -555,7 +561,7 @@ test("prompt line adds the cache field after a pipe and keeps the speed field", 
     "44%",
     " | ",
     "C:",
-    "87%",
+    " 87%",
     " · ",
     "⚡",
     "106",
@@ -566,18 +572,30 @@ test("prompt line adds the cache field after a pipe and keeps the speed field", 
   eq(line[10].tone, "muted")
   eq(line[11].tone, "success")
 
-  eq(flatText(buildPromptLine(goStatusView({ cache: { percent: 50 } }))), "[H:92% · W:45% · M:44% | C:50% · ⚡0t/s]")
+  eq(flatText(buildPromptLine(goStatusView({ cache: { percent: 50 } }))), "[H:92% · W:45% · M:44% | C: 50% · ⚡  0t/s]")
   eq(buildPromptLine(goStatusView({ cache: { percent: 50 } }))[11].tone, "base")
   eq(buildPromptLine(goStatusView({ cache: { percent: 12 } }))[11].tone, "warning")
 
   const empty = buildPromptLine(goStatusView({ cache: null }))
-  eq(flatText(empty), "[H:92% · W:45% · M:44% | C:— · ⚡0t/s]")
+  eq(flatText(empty), "[H:92% · W:45% · M:44% | C:   — · ⚡  0t/s]")
   eq(empty[11].tone, "muted")
+})
+
+test("cache field never shifts the row when values change width", () => {
+  const widths = [3, 45, 100, null].map(
+    (percent) => displayWidth(flatText(buildPromptLine(goStatusView({ speed: 5, cache: { percent } })))),
+  )
+  eq(new Set(widths).size, 1)
+
+  const speeds = [5, 45, 555].map(
+    (speed) => displayWidth(flatText(buildPromptLine(goStatusView({ speed, cache: { percent: 87 } })))),
+  )
+  eq(new Set(speeds).size, 1)
 })
 
 test("cache field widens the default row and drops after the speed field", () => {
   const full = goStatusView({ speed: 106, cache: { percent: 87 } })
-  eq(displayWidth(flatText(buildPromptLine(full))), 41)
+  eq(displayWidth(flatText(buildPromptLine(full))), 42)
   // Widest case: every meter at 100%.
   const maxed = normalizeStatus(
     {
@@ -594,9 +612,9 @@ test("cache field widens the default row and drops after the speed field", () =>
   )
   eq(displayWidth(flatText(buildPromptLine({ phase: "ready", status: maxed, speed: 999, cache: { percent: 100 } }))), 45)
 
-  eq(flatText(buildPromptLine(full, { width: 40 })), "[H:92% · W:45% · M:44% | C:87%]")
-  eq(flatText(buildPromptLine(full, { width: 32 })), "[H:92% · W:45% · M:44% | C:87%]")
-  eq(flatText(buildPromptLine(full, { width: 30 })), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(full, { width: 41 })), "[H:92% · W:45% · M:44% | C: 87%]")
+  eq(flatText(buildPromptLine(full, { width: 32 })), "[H:92% · W:45% · M:44% | C: 87%]")
+  eq(flatText(buildPromptLine(full, { width: 31 })), "[H:92% · W:45% · M:44%]")
   eq(flatText(buildPromptLine(full, { width: 22 })), "[H:92% · W:45%]")
   eq(flatText(buildPromptLine(full, { width: 8 })), "[H:92%]")
 
@@ -962,6 +980,116 @@ await testAsync("service surfaces unauthorized, absent, http and network errors"
 })
 
 // ---------------------------------------------------------------------------
+// usage events (runtime feed)
+// ---------------------------------------------------------------------------
+
+function usageEvent(type, data = {}, directory = "/work") {
+  return { details: { type, data, location: { directory } } }
+}
+
+test("usage feed turns deltas into a speed snapshot", () => {
+  const speeds = []
+  const feed = createUsageFeed({ directory: "/work", charsPerToken: 3.5, onSpeed: (next) => speeds.push(next) })
+  feed.onEvent(usageEvent("session.step.started", { sessionID: "ses_a" }))
+  feed.onEvent(usageEvent("session.text.delta", { sessionID: "ses_a", delta: "hello world!!!" }))
+  feed.tick()
+  eq(speeds.length, 1)
+  eq(speeds[0].ses_a, 8) // 14 chars / 3.5 per token over the 500 ms floor
+  feed.tick()
+  eq(speeds.length, 1) // an unchanged snapshot is not republished
+  feed.onEvent(usageEvent("session.execution.succeeded", { sessionID: "ses_a" }))
+  eq(speeds.length, 2)
+  eq(speeds[1], {})
+  feed.dispose()
+})
+
+test("usage feed ignores other directories and unrelated events", () => {
+  const speeds = []
+  const caches = []
+  const feed = createUsageFeed({ directory: "/work", onSpeed: (next) => speeds.push(next), onCache: (next) => caches.push(next) })
+  feed.onEvent(usageEvent("session.text.delta", { sessionID: "ses_a", delta: "zzzz" }, "/elsewhere"))
+  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens: { input: 1, cache: { read: 1 } } }, "/elsewhere"))
+  feed.tick()
+  eq(speeds, [])
+  eq(caches, [])
+
+  feed.onEvent(null)
+  feed.onEvent({})
+  feed.onEvent({ details: { type: "session.text.delta" } })
+  feed.onEvent(usageEvent("session.updated", { sessionID: "ses_a" }))
+  feed.onEvent(usageEvent("session.text.delta", { delta: "no session id" }))
+  eq(speeds, [])
+  eq(caches, [])
+  feed.dispose()
+})
+
+test("usage feed accumulates cache counters and skips replayed steps", () => {
+  const caches = []
+  const feed = createUsageFeed({ tps: false, directory: "/work", onCache: (next) => caches.push(next) })
+  const tokens = { input: 100, cache: { read: 900 } }
+  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens, assistantMessageID: "msg_1" }))
+  eq(caches.length, 1)
+  eq(caches[0].ses_a.percent, 90)
+
+  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens, assistantMessageID: "msg_1" }))
+  eq(caches.length, 1) // replayed durable event + identical snapshot
+
+  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens: { input: 100, cache: { read: 0 } }, assistantMessageID: "msg_2" }))
+  eq(caches.length, 2)
+  eq(caches[1].ses_a.percent, 81) // 900 / 1100
+  feed.dispose()
+})
+
+test("usage feed honours the tps and cache switches", () => {
+  let speed = 0
+  let cache = 0
+  const feed = createUsageFeed({ tps: false, cache: false, onSpeed: () => (speed += 1), onCache: () => (cache += 1) })
+  feed.onEvent(usageEvent("session.text.delta", { sessionID: "ses_a", delta: "xxxx" }))
+  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens: { input: 5, cache: { read: 5 } } }))
+  feed.tick()
+  eq(speed, 0)
+  eq(cache, 0)
+  eq(SPEED_TICK_MS, 500)
+  feed.dispose()
+})
+
+test("usage feed logs instead of throwing when a publisher fails", () => {
+  const lines = []
+  const feed = createUsageFeed({
+    directory: "/work",
+    log: { write: (line) => lines.push(line) },
+    onSpeed: () => {
+      throw new Error("boom")
+    },
+  })
+  feed.onEvent(usageEvent("session.text.delta", { sessionID: "ses_a", delta: "xxxx" }))
+  feed.tick()
+  eq(lines.length, 1)
+  includes(lines[0], "boom")
+  feed.dispose()
+})
+
+await testAsync("fetchJson aborts a request that outlives its timeout", async () => {
+  const calls = []
+  const hung = (url, init) => {
+    calls.push(init)
+    return new Promise((resolve, reject) => {
+      init.signal.addEventListener("abort", () => reject(new Error("aborted")))
+    })
+  }
+  let error = null
+  try {
+    await fetchJson(hung, { url: `${BASE}/api/go/status`, init: { method: "GET", headers: {} } }, "test/1", { timeoutMs: 20 })
+  } catch (caught) {
+    error = caught
+  }
+  includes(String(error?.message), "aborted")
+  ok(calls[0].signal instanceof AbortSignal)
+  eq(calls[0].headers["user-agent"], "test/1")
+  eq(DEFAULT_FETCH_TIMEOUT_MS, 15_000)
+})
+
+// ---------------------------------------------------------------------------
 // options, store, log, open
 // ---------------------------------------------------------------------------
 
@@ -1004,6 +1132,20 @@ test("option and env resolution uses GO_USAGE_*", () => {
   eq(resolveOptions({ env: { GO_USAGE_CACHE: "0" } }).cache, false)
   eq(resolveOptions({ env: { GO_USAGE_CACHE: "off" } }).cache, false)
   eq(resolveOptions({ env: { GO_USAGE_CACHE: "1" } }).cache, true)
+  eq(resolveOptions({}).bridge, true)
+  eq(resolveOptions({ options: { bridge: false } }).bridge, false)
+  eq(resolveOptions({ options: { bridge: true } }).bridge, true)
+  eq(resolveOptions({ env: { GO_USAGE_BRIDGE: "0" } }).bridge, false)
+  eq(resolveOptions({ env: { GO_USAGE_BRIDGE: "no" } }).bridge, false)
+  eq(resolveOptions({ env: { GO_USAGE_BRIDGE: "1" } }).bridge, true)
+  eq(DEFAULT_BRIDGE_URL, "http://127.0.0.1:7331/v1/usage")
+  eq(resolveOptions({}).bridgeUrl, DEFAULT_BRIDGE_URL)
+  eq(resolveOptions({ options: { bridgeUrl: " http://127.0.0.1:9000/u " } }).bridgeUrl, "http://127.0.0.1:9000/u")
+  eq(resolveOptions({ env: { GO_USAGE_BRIDGE_URL: "http://box:8080/u" } }).bridgeUrl, "http://box:8080/u")
+  eq(resolveOptions({ options: { bridgeUrl: "http://a/u" }, env: { GO_USAGE_BRIDGE_URL: "http://b/u" } }).bridgeUrl, "http://a/u")
+  eq(normalizeBridgeUrl(""), DEFAULT_BRIDGE_URL)
+  eq(normalizeBridgeUrl(undefined), DEFAULT_BRIDGE_URL)
+  eq(normalizeBridgeUrl(null), DEFAULT_BRIDGE_URL)
 })
 
 test("mole palette matches the other CLI plugins", () => {
@@ -1118,10 +1260,12 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(entry, "prompt.footer.status")
   excludes(entry, "sidebar.content", "the plugin owns the prompt footer only")
   includes(entry, "resolveCommand", "no-argument /go-usage must route through resolveCommand")
-  includes(entry, "createSpeedTracker", "the footer needs the live speed tracker")
-  includes(entry, "createCacheTracker", "the footer needs the session cache-hit tracker")
+  includes(entry, "createUsageFeed", "the footer needs the live speed tracker")
   includes(entry, "context.data.listen", "the speed tracker follows the runtime event stream")
-  includes(entry, 'case "session.step.ended"', "cache counters arrive at step end")
+  const feed = fs.readFileSync(path.join(PLUGIN_DIR, "src/usage-events.mjs"), "utf8")
+  includes(feed, "createSpeedTracker", "the feed owns the live speed tracker")
+  includes(feed, "createCacheTracker", "the feed owns the session cache-hit tracker")
+  includes(feed, 'case "session.step.ended"', "cache counters arrive at step end")
   includes(entry, 'slash: { name: "go-usage", arguments: true }')
   includes(entry, 'slash: { name: "go-usage-login" }')
   includes(entry, 'slash: { name: "go-usage-logout" }')

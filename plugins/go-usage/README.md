@@ -4,7 +4,7 @@ OpenCode **Go** plan usage — plus live **output speed** and **cache hit** mete
 as a single line in the OpenCode V2 CLI **prompt footer**:
 
 ```text
-[H:92% · W:45% · M:44% | C:87% · ⚡103t/s]
+[H:92% · W:45% · M:44% | C: 87% · ⚡103t/s]
 ```
 
 - `H` — rolling 5-hour meter, `W` — weekly, `M` — monthly (same order as the
@@ -13,13 +13,13 @@ as a single line in the OpenCode V2 CLI **prompt footer**:
   50%, yellow 50–79%, red 80% and above. The brackets and `·` separators stay
   faint and the `H:`/`W:`/`M:` labels stay muted, so the numbers are the
   loudest part of the line.
-- `C:87%` — cache hit of **this session**: `cache.read / (cache.read + input)`
+- `C: 87%` — cache hit of **this session**: `cache.read / (cache.read + input)`
   over every step the runtime has counted (writes are a stored miss, so they
   stay out of the denominator). Green ≥ 80%, plain 50–79%, amber < 50%;
-  `C:—` until the first step ends.
+  `C:   —` until the first step ends.
 - `⚡103t/s` — the live generation speed of the session in the current
   footer. The field is always present while the meters row is live: it shows
-  `⚡0t/s` in muted gray when the session is idle, and the value is toned
+  `⚡  0t/s` in muted gray when the session is idle, and the value is toned
   by speed while generating: **pink** ≥ 200 t/s (Dracula `#FF79C6`), **deep
   green** 150–199 t/s (fixed `#4CAF50`), **green** 100–149 t/s, **amber**
   60–99 t/s, **red** < 60 t/s — pink and deep green stay fixed in both
@@ -28,9 +28,9 @@ as a single line in the OpenCode V2 CLI **prompt footer**:
   plugin converts streamed delta characters with a chars-per-token factor
   (~3.5 default; Thai text packs ~2.4). Set `tpsFactor` if your language
   skews the number.
-- Both values render compactly (`C:3%`, `C:87%`, `C:100%`, `C:—`; `⚡0t/s`,
-  `⚡45t/s`, `⚡103t/s`), so the row shifts by a cell when a value gains or
-  loses a digit.
+- Both numbers are padded to a fixed width (`C:  3%` / `C: 87%` / `C:100%`,
+  `⚡  0` / `⚡ 45` / `⚡103`), so a value that gains a digit never shifts the
+  rest of the row.
 - A meter without data renders as `H:—`; with no data at all the line is
   `[H:— · W:— · M:—]`.
 - When the latest refresh failed but values are kept, the line is prefixed with
@@ -106,6 +106,8 @@ variables are fallbacks (options win).
 | `tpsFactor`   | `GO_USAGE_TPS_FACTOR`   | `3.5`                         | Chars per token for the estimate (clamped 1–8) |
 | `cache`       | `GO_USAGE_CACHE=0`      | `true`                        | Show the session cache-hit `C:` field |
 | `openBrowser` | `GO_USAGE_NO_OPEN=1`    | `true`                        | Auto-open the login URL        |
+| `bridge`      | `GO_USAGE_BRIDGE=0`     | `true`                        | Mirror the meters to the local desk box bridge |
+| `bridgeUrl`   | `GO_USAGE_BRIDGE_URL`   | `http://127.0.0.1:7331/v1/usage` | Bridge endpoint             |
 | `debug`       | `GO_USAGE_DEBUG=1`      | `false`                       | Log to `go-usage-debug.log` |
 
 Debug logs: `~/.config/opencode/plugins/go-usage-debug.log` (truncated at
@@ -118,9 +120,9 @@ Debug logs: `~/.config/opencode/plugins/go-usage-debug.log` (truncated at
 | `Go …`                      | First fetch in flight                                 |
 | `Go —`                      | No session yet, or the account has no Go subscription |
 | `Go !`                      | Fetch failed and there are no cached values           |
-| `[H:… · W:… · M:… \| C:n% · ⚡nt/s]` | Live values + this session's cache hit and speed |
+| `[H:… · W:… · M:… \| C: n% · ⚡nt/s]` | Live values + this session's cache hit and speed |
 | `[H:… · W:… · M:…]`         | Too narrow: `⚡`, then `C`, then `M` were dropped      |
-| `! [H:… · W:… · M:… \| C:n% · ⚡nt/s]` | Refresh failed; last known values are kept |
+| `! [H:… · W:… · M:… \| C: n% · ⚡nt/s]` | Refresh failed; last known values are kept |
 
 ## How it gets the data
 
@@ -139,9 +141,25 @@ Debug logs: `~/.config/opencode/plugins/go-usage-debug.log` (truncated at
   token counters (`input`, `cache.read`, `cache.write`), which are summed per
   session. The map is bounded to 32 sessions (least recently used evicted), so
   a long-lived TUI never grows it without limit; a session that has not ended a
-  step yet shows `C:—`.
+  step yet shows `C:   —`.
 - API keys (`sk-…` in `auth.json`) do not work on the Console API; only the
   device-flow session works. The plugin never reads your other credentials.
+
+## Desk box bridge
+
+Besides the footer, every successful (and absent) refresh POSTs the three
+percentages to a **local** bridge owned by the esp-buddy desk box:
+
+```json
+POST http://127.0.0.1:7331/v1/usage
+{ "hour": 4, "week": 9, "month": 19 }
+```
+
+It is best-effort: a refused connection, a timeout or a non-JSON reply is
+ignored and never delays a fetch. The bridge is on by default for people who
+run the box; disable it with `"bridge": false` or `GO_USAGE_BRIDGE=0`, and
+point it elsewhere with `bridgeUrl` / `GO_USAGE_BRIDGE_URL`. No other network
+target is contacted besides the configured Console base URL.
 
 ## Tests
 
@@ -152,13 +170,15 @@ node test/harness.mjs   # or: bun run test
 
 Offline only: H/W/M line rendering, per-meter tones, missing meters, stale
 prefix, every phase, width clipping, the cache-hit `C:` field (hit math,
-per-session accumulation and LRU eviction), detail dialog text,
+per-session accumulation and LRU eviction), the fixed-width padding that keeps
+the row still, detail dialog text,
 smart command routing, device-flow state machine (`authorization_pending`,
 `slow_down` backoff, expiry, cancel, refresh), 401 → refresh → retry,
-options/env resolution, live speed tracker math (window, freshness, per-session
-isolation, factor clamping) and its footer field/tier tones, install helper
-patching, packaging, and source hygiene. Must print
-`ALL TESTS PASSED (N assertions)`.
+options/env resolution, the runtime event feed (directory filter, speed/cache
+mapping, replay dedupe, disabled switches, fetch timeout), live speed tracker
+math (window, freshness, per-session isolation, factor clamping) and its footer
+field/tier tones, install helper patching, packaging, and source hygiene. Must
+print `ALL TESTS PASSED (N assertions)`.
 
 ## Notes
 
@@ -166,8 +186,8 @@ patching, packaging, and source hygiene. Must print
   usage; it never subscribes, cancels, or changes billing.
 - The device login is the same one the OpenCode CLI itself uses for its Console
   account connection; sessions are independent per client.
-- The prompt footer is one narrow row, so the line is clipped (48 cells with
-  the cache field, 40 without); trailing fields are dropped whole (`⚡` first,
+- The prompt footer is one narrow row, so the line is clipped (45 cells with
+  the cache field, 36 without); trailing fields are dropped whole (`⚡` first,
   then `C`, then `M`, then `W`) and the `[...]` brackets are always kept
   balanced.
 - The speed number is an estimate derived from streamed characters, not the
