@@ -1,18 +1,17 @@
 // go-usage — view state -> the prompt-footer line.
 //
 // The prompt footer is a single narrow row, so the model renders one short
-// `[H:92% · W:45% · M:44% | C: 87% · ⚡45 tok/s]` line (H = rolling 5h, W =
+// `[H:92% · W:45% · M:44% | C:87% · ⚡103t/s]` line (H = rolling 5h, W =
 // weekly, M = monthly, C = session cache hit) with per-field threshold tones
 // and faint brackets/separators. The cache group (`C`) and the live speed
-// group (`⚡`) are always present on the ready row when enabled; both numbers
-// are padded to a fixed width so a value change never shifts the row. Pure so
-// the harness can assert every state.
+// group (`⚡`) are always present on the ready row when enabled, rendered
+// compactly with no padding. Pure so the harness can assert every state.
 
 import {
   displayWidth,
   formatCacheBadge,
   formatReset,
-  formatTpsField,
+  formatTps,
   toneForCacheHit,
   toneForMeter,
   toneForTps,
@@ -108,7 +107,7 @@ export function cacheForSession(caches, sessionID) {
   return entry && typeof entry === "object" ? entry : null
 }
 
-/** `C: 87%` — fixed width so the field never shifts the row. */
+/** `C:87%` — this session's cache hit. */
 function cacheGroup(cache) {
   const percent = toNumber(cache?.percent)
   return {
@@ -120,7 +119,7 @@ function cacheGroup(cache) {
   }
 }
 
-/** `⚡ 45 tok/s` — the number padded to a fixed width while generating. */
+/** `⚡103t/s` — the live output speed of this session. */
 function speedGroup(speed) {
   const value = toNumber(speed)
   const shown = value != null && value > 0 ? value : 0
@@ -128,8 +127,8 @@ function speedGroup(speed) {
     sep: " · ",
     parts: [
       seg("⚡", "muted"),
-      seg(formatTpsField(shown), shown > 0 ? toneForTps(shown) : "muted"),
-      seg(" tok/s", "muted"),
+      seg(formatTps(shown), shown > 0 ? toneForTps(shown) : "muted"),
+      seg("t/s", "muted"),
     ],
   }
 }

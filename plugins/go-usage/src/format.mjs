@@ -64,23 +64,12 @@ export function formatTps(value) {
   return number < 9.95 ? number.toFixed(1) : String(Math.round(number))
 }
 
-/** Field width that keeps the speed number from shifting the row. */
-export const SPEED_BADGE_WIDTH = 3
-
-/** Speed label padded to a fixed width (`"  0"`, `"7.4"`, `" 45"`, `"106"`). */
-export function formatTpsField(value) {
-  return formatTps(value).padStart(SPEED_BADGE_WIDTH)
-}
-
-/** Field width that keeps `3%` / `87%` / `100%` / `—` the same size. */
-export const CACHE_BADGE_WIDTH = 4
-
-/** Cache-hit label padded to a fixed width (`"  3%"`, `" 87%"`, `"100%"`, `"   —"`). */
+/** Cache-hit label: `"—"`, `"3%"`, `"87%"`, `"100%"` (no padding). */
 export function formatCacheBadge(percentValue) {
   const value = toNumber(percentValue)
-  if (value == null) return "—".padStart(CACHE_BADGE_WIDTH)
+  if (value == null) return "—"
   const clamped = Math.min(100, Math.max(0, Math.round(value)))
-  return `${clamped}%`.padStart(CACHE_BADGE_WIDTH)
+  return `${clamped}%`
 }
 
 /** Cache-hit buckets: higher is better — >= 80 success, >= 50 base, else warning. */

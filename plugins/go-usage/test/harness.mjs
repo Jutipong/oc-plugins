@@ -10,7 +10,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { displayWidth, formatCacheBadge, formatReset, formatTps, formatTpsField, toNumber, toTime, toneForCacheHit, toneForMeter, toneForTps, truncate } from "../src/format.mjs"
+import { displayWidth, formatCacheBadge, formatReset, formatTps, toNumber, toTime, toneForCacheHit, toneForMeter, toneForTps, truncate } from "../src/format.mjs"
 import { METER_KEYS, meterFromRaw, normalizeStatus } from "../src/status.mjs"
 import {
   DEFAULT_BASE_URL,
@@ -288,21 +288,18 @@ test("cache tracker ignores a re-delivered step counter", () => {
   tracker.dispose()
 })
 
-test("cache field keeps a fixed width so the row never shifts", () => {
-  eq(formatCacheBadge(null), "   —")
-  eq(formatCacheBadge(3), "  3%")
-  eq(formatCacheBadge(87), " 87%")
+test("cache and speed fields render compact, without padding", () => {
+  eq(formatCacheBadge(null), "—")
+  eq(formatCacheBadge(3), "3%")
+  eq(formatCacheBadge(87), "87%")
   eq(formatCacheBadge(100), "100%")
   eq(formatCacheBadge(140), "100%")
-  eq(formatCacheBadge("x"), "   —")
-  eq(displayWidth(formatCacheBadge(3)), displayWidth(formatCacheBadge(87)))
-  eq(displayWidth(formatCacheBadge(null)), displayWidth(formatCacheBadge(100)))
+  eq(formatCacheBadge("x"), "—")
 
-  eq(formatTpsField(0), "  0")
-  eq(formatTpsField(7.4), "7.4")
-  eq(formatTpsField(45), " 45")
-  eq(formatTpsField(106), "106")
-  eq(displayWidth(formatTpsField(5)), displayWidth(formatTpsField(555)))
+  eq(formatTps(0), "0")
+  eq(formatTps(7.4), "7.4")
+  eq(formatTps(45), "45")
+  eq(formatTps(106), "106")
 
   eq(toneForCacheHit(100), "success")
   eq(toneForCacheHit(80), "success")
@@ -413,7 +410,7 @@ test("normalizeStatus shapes the footer data", () => {
 
 test("prompt line renders bracketed H/W/M with faint labels and toned values", () => {
   const line = buildPromptLine(goStatusView())
-  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡  0 tok/s]")
+  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡0t/s]")
   eq(line.map((segment) => segment.text), [
     "[",
     "H:",
@@ -426,8 +423,8 @@ test("prompt line renders bracketed H/W/M with faint labels and toned values", (
     "44%",
     " · ",
     "⚡",
-    "  0",
-    " tok/s",
+    "0",
+    "t/s",
     "]",
   ])
   eq(line.map((segment) => segment.tone), [
@@ -451,19 +448,19 @@ test("prompt line renders bracketed H/W/M with faint labels and toned values", (
 test("prompt line uses muted placeholders for missing meters", () => {
   const status = normalizeStatus({ product: "go", access: { meters: { fiveHour: null, week: null, month: null } } }, NOW)
   const line = buildPromptLine({ phase: "ready", status })
-  eq(flatText(line), "[H:— · W:— · M:— · ⚡  0 tok/s]")
+  eq(flatText(line), "[H:— · W:— · M:— · ⚡0t/s]")
   eq(line[1].tone, "muted")
   eq(line[2].tone, "muted")
   eq(line[4].tone, "muted")
   eq(line[5].tone, "muted")
 
   const partial = normalizeStatus({ product: "go", access: { meters: { fiveHour: { usedMicroCents: 1, limitMicroCents: 2 } } } }, NOW)
-  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:— · ⚡  0 tok/s]")
+  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:— · ⚡0t/s]")
 })
 
 test("prompt line marks stale values with a warning prefix", () => {
   const line = buildPromptLine(goStatusView({ stale: true, error: "HTTP 500" }))
-  eq(flatText(line), "! [H:92% · W:45% · M:44% · ⚡  0 tok/s]")
+  eq(flatText(line), "! [H:92% · W:45% · M:44% · ⚡0t/s]")
   eq(line[0].tone, "warning")
   eq(line[1].text, "[")
   eq(line[3].tone, "danger")
@@ -471,7 +468,7 @@ test("prompt line marks stale values with a warning prefix", () => {
 
 test("prompt line appends the live speed field with tier tones", () => {
   const line = buildPromptLine(goStatusView({ speed: 120.3 }))
-  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡120 tok/s]")
+  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡120t/s]")
   eq(line.map((segment) => segment.text), [
     "[",
     "H:",
@@ -485,27 +482,27 @@ test("prompt line appends the live speed field with tier tones", () => {
     " · ",
     "⚡",
     "120",
-    " tok/s",
+    "t/s",
     "]",
   ])
   eq(line[10].tone, "muted")
   eq(line[11].tone, "success")
   eq(line[12].tone, "muted")
 
-  eq(flatText(buildPromptLine(goStatusView({ speed: 70.4 }))), "[H:92% · W:45% · M:44% · ⚡ 70 tok/s]")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 70.4 }))), "[H:92% · W:45% · M:44% · ⚡70t/s]")
   eq(buildPromptLine(goStatusView({ speed: 70.4 }))[11].tone, "warning")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 180.4 }))), "[H:92% · W:45% · M:44% · ⚡180 tok/s]")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 180.4 }))), "[H:92% · W:45% · M:44% · ⚡180t/s]")
   eq(buildPromptLine(goStatusView({ speed: 180.4 }))[11].tone, "hot")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 250.4 }))), "[H:92% · W:45% · M:44% · ⚡250 tok/s]")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 250.4 }))), "[H:92% · W:45% · M:44% · ⚡250t/s]")
   eq(buildPromptLine(goStatusView({ speed: 250.4 }))[11].tone, "pink")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 4.26 }))), "[H:92% · W:45% · M:44% · ⚡4.3 tok/s]")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 4.26 }))), "[H:92% · W:45% · M:44% · ⚡4.3t/s]")
   eq(buildPromptLine(goStatusView({ speed: 4.26 }))[11].tone, "danger")
 
   const idle = buildPromptLine(goStatusView({ speed: null }))
-  eq(flatText(idle), "[H:92% · W:45% · M:44% · ⚡  0 tok/s]")
-  eq(idle[11].text, "  0")
+  eq(flatText(idle), "[H:92% · W:45% · M:44% · ⚡0t/s]")
+  eq(idle[11].text, "0")
   eq(idle[11].tone, "muted")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 0 }))), "[H:92% · W:45% · M:44% · ⚡  0 tok/s]")
+  eq(flatText(buildPromptLine(goStatusView({ speed: 0 }))), "[H:92% · W:45% · M:44% · ⚡0t/s]")
   eq(buildPromptLine(goStatusView({ speed: 0 }))[11].tone, "muted")
 })
 
@@ -514,13 +511,13 @@ test("speed only renders on the ready row and drops first when narrow", () => {
   eq(flatText(buildPromptLine({ phase: "checking", speed: 45 })), "Go …")
 
   const view = goStatusView({ speed: 45.3 })
-  eq(flatText(buildPromptLine(view, { width: 36 })), "[H:92% · W:45% · M:44% · ⚡ 45 tok/s]")
-  eq(flatText(buildPromptLine(view, { width: 35 })), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(view, { width: 32 })), "[H:92% · W:45% · M:44% · ⚡45t/s]")
+  eq(flatText(buildPromptLine(view, { width: 31 })), "[H:92% · W:45% · M:44%]")
   eq(flatText(buildPromptLine(view, { width: 22 })), "[H:92% · W:45%]")
 
   const idle = goStatusView({ speed: null })
-  eq(flatText(buildPromptLine(idle, { width: 36 })), "[H:92% · W:45% · M:44% · ⚡  0 tok/s]")
-  eq(flatText(buildPromptLine(idle, { width: 35 })), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(idle, { width: 31 })), "[H:92% · W:45% · M:44% · ⚡0t/s]")
+  eq(flatText(buildPromptLine(idle, { width: 30 })), "[H:92% · W:45% · M:44%]")
 })
 
 test("speedForSession only returns the footer session's own live rate", () => {
@@ -545,7 +542,7 @@ test("cacheForSession only returns the footer session's own counters", () => {
 
 test("prompt line adds the cache field after a pipe and keeps the speed field", () => {
   const line = buildPromptLine(goStatusView({ speed: 106, cache: { percent: 87 } }))
-  eq(flatText(line), "[H:92% · W:45% · M:44% | C: 87% · ⚡106 tok/s]")
+  eq(flatText(line), "[H:92% · W:45% · M:44% | C:87% · ⚡106t/s]")
   eq(line.map((segment) => segment.text), [
     "[",
     "H:",
@@ -558,41 +555,29 @@ test("prompt line adds the cache field after a pipe and keeps the speed field", 
     "44%",
     " | ",
     "C:",
-    " 87%",
+    "87%",
     " · ",
     "⚡",
     "106",
-    " tok/s",
+    "t/s",
     "]",
   ])
   eq(line[9].tone, "faint")
   eq(line[10].tone, "muted")
   eq(line[11].tone, "success")
 
-  eq(flatText(buildPromptLine(goStatusView({ cache: { percent: 50 } }))), "[H:92% · W:45% · M:44% | C: 50% · ⚡  0 tok/s]")
+  eq(flatText(buildPromptLine(goStatusView({ cache: { percent: 50 } }))), "[H:92% · W:45% · M:44% | C:50% · ⚡0t/s]")
   eq(buildPromptLine(goStatusView({ cache: { percent: 50 } }))[11].tone, "base")
   eq(buildPromptLine(goStatusView({ cache: { percent: 12 } }))[11].tone, "warning")
 
   const empty = buildPromptLine(goStatusView({ cache: null }))
-  eq(flatText(empty), "[H:92% · W:45% · M:44% | C:   — · ⚡  0 tok/s]")
+  eq(flatText(empty), "[H:92% · W:45% · M:44% | C:— · ⚡0t/s]")
   eq(empty[11].tone, "muted")
-})
-
-test("cache field never shifts the row when values change width", () => {
-  const widths = [3, 45, 100, null].map(
-    (percent) => displayWidth(flatText(buildPromptLine(goStatusView({ speed: 5, cache: { percent } })))),
-  )
-  eq(new Set(widths).size, 1)
-
-  const speeds = [5, 45, 555].map(
-    (speed) => displayWidth(flatText(buildPromptLine(goStatusView({ speed, cache: { percent: 87 } })))),
-  )
-  eq(new Set(speeds).size, 1)
 })
 
 test("cache field widens the default row and drops after the speed field", () => {
   const full = goStatusView({ speed: 106, cache: { percent: 87 } })
-  eq(displayWidth(flatText(buildPromptLine(full))), 45)
+  eq(displayWidth(flatText(buildPromptLine(full))), 41)
   // Widest case: every meter at 100%.
   const maxed = normalizeStatus(
     {
@@ -607,16 +592,16 @@ test("cache field widens the default row and drops after the speed field", () =>
     },
     NOW,
   )
-  eq(displayWidth(flatText(buildPromptLine({ phase: "ready", status: maxed, speed: 999, cache: { percent: 100 } }))), 48)
+  eq(displayWidth(flatText(buildPromptLine({ phase: "ready", status: maxed, speed: 999, cache: { percent: 100 } }))), 45)
 
-  eq(flatText(buildPromptLine(full, { width: 40 })), "[H:92% · W:45% · M:44% | C: 87%]")
-  eq(flatText(buildPromptLine(full, { width: 32 })), "[H:92% · W:45% · M:44% | C: 87%]")
-  eq(flatText(buildPromptLine(full, { width: 31 })), "[H:92% · W:45% · M:44%]")
+  eq(flatText(buildPromptLine(full, { width: 40 })), "[H:92% · W:45% · M:44% | C:87%]")
+  eq(flatText(buildPromptLine(full, { width: 32 })), "[H:92% · W:45% · M:44% | C:87%]")
+  eq(flatText(buildPromptLine(full, { width: 30 })), "[H:92% · W:45% · M:44%]")
   eq(flatText(buildPromptLine(full, { width: 22 })), "[H:92% · W:45%]")
   eq(flatText(buildPromptLine(full, { width: 8 })), "[H:92%]")
 
   // Cache disabled: the line is back to the compact layout and 40 cells.
-  eq(displayWidth(flatText(buildPromptLine(goStatusView({ speed: 106 })))), 36)
+  eq(displayWidth(flatText(buildPromptLine(goStatusView({ speed: 106 })))), 33)
 })
 
 test("prompt line drops trailing meters whole and keeps the brackets balanced", () => {
