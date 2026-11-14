@@ -1,15 +1,27 @@
 // go-usage — view state -> the prompt-footer line.
 //
 // The prompt footer is a single narrow row, so the model renders one short
-// `[H:92% · W:45% · M:44%]` line (H = rolling 5h, W = weekly, M = monthly)
-// with per-meter threshold tones and faint brackets/separators. A trailing
-// `⚡45 tok/s` field always shows the live rate in the ready row (`⚡0 tok/s`,
-// muted, while the session is idle), toned green/amber/red/pink by speed. Pure so
+// `[H:92% · W:45% · M:44% | C: 87% · ⚡45 tok/s]` line (H = rolling 5h, W =
+// weekly, M = monthly, C = session cache hit) with per-field threshold tones
+// and faint brackets/separators. The cache group (`C`) and the live speed
+// group (`⚡`) are always present on the ready row when enabled; both numbers
+// are padded to a fixed width so a value change never shifts the row. Pure so
 // the harness can assert every state.
 
-import { displayWidth, formatReset, formatTps, toneForMeter, toneForTps, toNumber, truncate } from "./format.mjs"
+import {
+  displayWidth,
+  formatCacheBadge,
+  formatReset,
+  formatTpsField,
+  toneForCacheHit,
+  toneForMeter,
+  toneForTps,
+  toNumber,
+  truncate,
+} from "./format.mjs"
 
 const PROMPT_WIDTH = 40
+const PROMPT_WIDTH_CACHE = 48
 
 /** Footer meters in display order; the labels mirror the Console cards. */
 export const STATUS_METERS = [
@@ -48,29 +60,31 @@ const PHASE_LABELS = {
 }
 
 /**
- * Join meter groups with faint ` · ` separators. Each group is a list of
- * segments so the label (`H:`) and the value (`92%`) can carry different tones.
+ * Join field groups with their own faint separators. Each group is a list of
+ * segments so a label (`H:`) and its value (`92%`) can carry different tones;
+ * `sep` is what precedes the group (`" · "` between meters, `" | "` before
+ * the session fields).
  */
-function meterSegments(meters) {
+function groupsToLine(groups, count = groups.length) {
   const line = []
-  meters.forEach((parts, index) => {
-    if (index > 0) line.push(seg(" · ", "faint"))
-    line.push(...parts)
+  groups.slice(0, count).forEach((group, index) => {
+    if (index > 0) line.push(seg(group.sep ?? " · ", "faint"))
+    line.push(...group.parts)
   })
   return line
 }
 
 /**
- * Bracket the meters, dropping trailing buckets whole when the row is narrow.
- * `[` and `]` are always kept; if even one meter overflows, the inside is
+ * Bracket the fields, dropping trailing groups whole when the row is narrow.
+ * `[` and `]` are always kept; if even one field overflows, the inside is
  * truncated but the closing bracket stays.
  */
-function bracketLine(meters, budget) {
-  for (let count = meters.length; count >= 1; count -= 1) {
-    const line = [seg("[", "faint"), ...meterSegments(meters.slice(0, count)), seg("]", "faint")]
+function bracketLine(groups, budget) {
+  for (let count = groups.length; count >= 1; count -= 1) {
+    const line = [seg("[", "faint"), ...groupsToLine(groups, count), seg("]", "faint")]
     if (lineWidth(line) <= budget) return line
   }
-  const inner = meterSegments(meters)
+  const inner = groupsToLine(groups)
   return [seg("[", "faint"), ...clipLine(inner, Math.max(0, budget - 2)), seg("]", "faint")]
 }
 
@@ -85,33 +99,70 @@ export function speedForSession(speeds, sessionID) {
 }
 
 /**
+ * Pick the cache stats for the session a footer is rendering. `null` means
+ * "cache field is on but this session has no counters yet".
+ */
+export function cacheForSession(caches, sessionID) {
+  if (!caches || !sessionID) return null
+  const entry = caches[sessionID]
+  return entry && typeof entry === "object" ? entry : null
+}
+
+/** `C: 87%` — fixed width so the field never shifts the row. */
+function cacheGroup(cache) {
+  const percent = toNumber(cache?.percent)
+  return {
+    sep: " | ",
+    parts: [
+      seg("C:", "muted"),
+      seg(formatCacheBadge(percent), percent == null ? "muted" : toneForCacheHit(percent)),
+    ],
+  }
+}
+
+/** `⚡ 45 tok/s` — the number padded to a fixed width while generating. */
+function speedGroup(speed) {
+  const value = toNumber(speed)
+  const shown = value != null && value > 0 ? value : 0
+  return {
+    sep: " · ",
+    parts: [
+      seg("⚡", "muted"),
+      seg(formatTpsField(shown), shown > 0 ? toneForTps(shown) : "muted"),
+      seg(" tok/s", "muted"),
+    ],
+  }
+}
+
+/**
  * `prompt.footer.status` line.
  *
- * view: { phase, status, stale, error, fetchedAt, speed }
+ * view: { phase, status, stale, error, fetchedAt, speed, cache }
  *   phase: "checking" | "loading" | "ready" | "error" | "absent" | "disconnected"
  *   speed: live tokens/second while this session is generating, else null
+ *   cache: `{ percent }` for this session, `null` when it has no counters yet,
+ *          or `undefined` when the cache field is disabled
  *
  * options:
- *   width — max cells (default 40)
+ *   width — max cells (default 48 with the cache field, 40 without)
  */
 export function buildPromptLine(view = {}, options = {}) {
-  const width = Math.max(8, Math.round(options.width ?? PROMPT_WIDTH))
   const phase = view.phase ?? "checking"
+  const cacheEnabled = view.cache !== undefined
+  const width = Math.max(8, Math.round(options.width ?? (cacheEnabled ? PROMPT_WIDTH_CACHE : PROMPT_WIDTH)))
 
   if (phase === "ready" && view.status) {
     const meters = new Map((view.status.meters ?? []).map((entry) => [entry.key, entry.meter]))
     const groups = STATUS_METERS.map(({ key, prefix }) => {
       const meter = meters.get(key)
-      return meter
-        ? [seg(`${prefix}:`, "muted"), seg(meter.badge, toneForMeter(meter.percent))]
-        : [seg(`${prefix}:`, "muted"), seg("—", "muted")]
+      return {
+        parts: meter
+          ? [seg(`${prefix}:`, "muted"), seg(meter.badge, toneForMeter(meter.percent))]
+          : [seg(`${prefix}:`, "muted"), seg("—", "muted")],
+      }
     })
-    const speed = toNumber(view.speed) ?? 0
-    groups.push([
-      seg("⚡", "muted"),
-      seg(formatTps(speed), speed > 0 ? toneForTps(speed) : "muted"),
-      seg(" tok/s", "muted"),
-    ])
+    if (cacheEnabled) groups.push(cacheGroup(view.cache))
+    groups.push(speedGroup(view.speed))
     const prefix = view.stale ? [seg("! ", "warning")] : []
     const budget = Math.max(0, width - lineWidth(prefix))
     return [...prefix, ...bracketLine(groups, budget)]

@@ -2,7 +2,7 @@
 import { For, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { RGBA } from "@opentui/core"
 import { MOLE_PALETTE } from "../colors.mjs"
-import { buildPromptLine, speedForSession } from "../model.mjs"
+import { buildPromptLine, cacheForSession, speedForSession } from "../model.mjs"
 
 const MOLE_RGBA = Object.fromEntries(
   Object.entries(MOLE_PALETTE).map(([tone, rgb]) => [tone, RGBA.fromInts(rgb[0], rgb[1], rgb[2], 255)]),
@@ -58,20 +58,27 @@ export function LineText(props) {
 export function PromptUsage(props) {
   const [view, setView] = createSignal(props.state.get())
   const [speeds, setSpeeds] = createSignal(props.speeds?.get?.() ?? {})
+  const [caches, setCaches] = createSignal(props.caches?.get?.() ?? {})
 
   onMount(() => {
     const unsubscribe = props.state.subscribe(setView)
     const unsubscribeSpeeds = props.speeds?.subscribe?.(setSpeeds)
+    const unsubscribeCaches = props.caches?.subscribe?.(setCaches)
     onCleanup(() => {
       unsubscribe()
       unsubscribeSpeeds?.()
+      unsubscribeCaches?.()
     })
   })
 
   const line = createMemo(() =>
     buildPromptLine(
-      { ...view(), speed: speedForSession(speeds(), props.sessionID) },
-      { width: props.width ?? 40 },
+      {
+        ...view(),
+        speed: speedForSession(speeds(), props.sessionID),
+        cache: props.caches ? cacheForSession(caches(), props.sessionID) : undefined,
+      },
+      { width: props.width },
     ),
   )
 

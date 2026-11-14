@@ -41,6 +41,7 @@ export function resolveOptions({ options = {}, env = {} } = {}) {
     openBrowser: options.openBrowser !== false && !truthyFlag(env.GO_USAGE_NO_OPEN),
     tps: options.tps !== false && !falsyFlag(env.GO_USAGE_TPS),
     tpsCharsPerToken: clampCharsPerToken(options.tpsFactor ?? env.GO_USAGE_TPS_FACTOR),
+    cache: options.cache !== false && !falsyFlag(env.GO_USAGE_CACHE),
     debug: options.debug === true || truthyFlag(env.GO_USAGE_DEBUG),
   }
 }

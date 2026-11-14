@@ -181,16 +181,21 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
 - **Surface**: prompt footer only — `context.ui.slot({ append: "prompt.footer.status", ... })`.
   Entry `tui.ts` → `src/entry.tsx` (`Plugin.define({ id: "go-usage", ... })`).
   No sidebar/frame/bars.
-- **Line**: `[H:92% · W:45% · M:44% · ⚡45 tok/s]` (H rolling 5 h, W weekly,
-  M monthly; `⚡n tok/s` is always present on the ready row — `⚡0 tok/s` in
-  muted gray when the footer's own session is idle). Labels are muted, values
-  use the 50/80 threshold tone, brackets and ` · ` are faint; missing meters
-  render `—`; stale values prefix `! `. The speed field is toned by tier:
-  green ≥ 100 tok/s (deep green #4CAF50 from 150, Dracula pink #FF79C6 from 200),
-  amber 60–99, red < 60
-  while generating; it is the first field dropped when narrow (then `M`, then
-  `W`), keeping the brackets balanced. Non-ready states are `Go …` / `Go —` /
-  `Go !` (no speed field).
+- **Line**: `[H:92% · W:45% · M:44% | C: 87% · ⚡45 tok/s]` (H rolling 5 h, W
+  weekly, M monthly, C session cache hit; `⚡n tok/s` and `C: n%` are always
+  present on the ready row — `⚡  0 tok/s` in muted gray when the footer's own
+  session is idle, `C:   —` until that session ends a step). Labels are muted,
+  values use the 50/80 threshold tone (cache is inverted: green ≥ 80, plain
+  50–79, amber < 50), brackets and ` · ` are faint, ` | ` is faint and splits
+  the plan group from the session group; missing meters render `—`; stale
+  values prefix `! `. Both numbers are padded to a fixed width
+  (`C:  3%`/`C: 87%`/`C:100%`, `⚡  0`/`⚡ 45`/`⚡106`) so a digit change never
+  shifts the row. The speed field is toned by tier: green ≥ 100 tok/s (deep
+  green #4CAF50 from 150, Dracula pink #FF79C6 from 200), amber 60–99, red
+  < 60 while generating. Drop order when narrow: `⚡`, then `C`, then `M`, then
+  `W`, keeping the brackets balanced. The row caps at 48 cells with the cache
+  field (40 without). Non-ready states are `Go …` / `Go —` / `Go !` (no session
+  fields).
 - **Data source**: `GET {console}/api/go/status` (base
   `https://opencode.ai/console`, env/option overridable). Response is nullable
   (no subscription): `access.meters.{fiveHour,week,month}` each
@@ -215,7 +220,8 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   `baseUrl` / `GO_USAGE_BASE_URL`, `org` / `GO_USAGE_ORG`, `colorMode` /
   `GO_USAGE_COLOR_MODE` (`mole` / `theme`), `tps` / `GO_USAGE_TPS` (on;
   `0`/`false`/`off`/`no` hides the speed field), `tpsFactor` /
-  `GO_USAGE_TPS_FACTOR` (chars per token, default 3.5, clamped 1–8),
+  `GO_USAGE_TPS_FACTOR` (chars per token, default 3.5, clamped 1–8), `cache` /
+  `GO_USAGE_CACHE` (on; `0`/`false`/`off`/`no` hides the `C:` field),
   `openBrowser` / `GO_USAGE_NO_OPEN=1`, `debug` / `GO_USAGE_DEBUG=1`
   (`~/.config/opencode/plugins/go-usage-debug.log`, 512 KB truncate). The
   payload is cached in storage so the footer renders instantly after restart.
@@ -227,7 +233,14 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   sessions, and the slot renders only the rate of its own `sessionID`.
   Publish is throttled to 2/s and skipped when the visible value is
   unchanged.
+- **Cache hit**: taken from the real counters at `session.step.ended`
+  (`data.tokens = {input, output, reasoning, cache:{read,write}}`, per-step
+  deltas), summed per session by `src/cache.mjs` (LRU bound 32 sessions, kept
+  across turns, no reset on idle; `assistantMessageID` dedupes a replayed
+  durable event). `hit% = floor(read / (read + input))`, `100` when the step
+  had no fresh input, `—` before the first step.
 - **Tests**: `cd plugins/go-usage && node test/harness.mjs` (offline, no
   network; must print `ALL TESTS PASSED`). Covers meter math/tones, the speed
-  tracker (window, freshness, per-session isolation, factor clamp), line
-  clipping, auth flow, options, packaging.
+  tracker (window, freshness, per-session isolation, factor clamp), cache hit
+  math/accumulation/LRU/fixed-width padding, line clipping, auth flow, options,
+  packaging.

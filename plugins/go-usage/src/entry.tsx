@@ -1,6 +1,7 @@
 /** @jsxImportSource @opentui/solid */
 import { Plugin } from "@opencode/plugin/tui"
 import { createAuthManager } from "./auth.mjs"
+import { createCacheTracker } from "./cache.mjs"
 import { resolveCommand } from "./commands.mjs"
 import { createLogger } from "./log.mjs"
 import { buildDetailLines } from "./model.mjs"
@@ -74,6 +75,8 @@ export default Plugin.define({
     const state = createObservable(initialView)
     // `{ [sessionID]: tokensPerSecond }` for sessions that are streaming now.
     const speeds = createObservable({})
+    // `{ [sessionID]: { percent, input, read, write, output } }` per session.
+    const caches = createObservable({})
 
     // Mirror the three plan meters to the desk box's bridge, when one runs.
     // The box is a local convenience: every failure is ignored, and it never
@@ -358,11 +361,14 @@ export default Plugin.define({
 
     // Live output speed: the runtime streams text/reasoning deltas but no
     // token counters until a step ends, so the tracker estimates tokens per
-    // second from delta characters (see tps.mjs). Published at most twice a
-    // second, and only when the visible value changes.
-    if (options.tps && typeof context.data?.listen === "function") {
+    // second from delta characters (see tps.mjs). Cache hit accounting reads
+    // the real counter deltas at `session.step.ended` (see cache.mjs). Both
+    // are published only when the visible value changes.
+    if ((options.tps || options.cache) && typeof context.data?.listen === "function") {
       const tracker = createSpeedTracker({ charsPerToken: options.tpsCharsPerToken })
+      const cacheTracker = createCacheTracker()
       let signature = ""
+      let cacheSignature = ""
       const publishSpeed = () => {
         const next = tracker.snapshot()
         const nextSignature = JSON.stringify(next)
@@ -370,7 +376,14 @@ export default Plugin.define({
         signature = nextSignature
         speeds.set(next)
       }
-      const onSpeedEvent = (event) => {
+      const publishCache = () => {
+        const next = cacheTracker.snapshot()
+        const nextSignature = JSON.stringify(next)
+        if (nextSignature === cacheSignature) return
+        cacheSignature = nextSignature
+        caches.set(next)
+      }
+      const onUsageEvent = (event) => {
         try {
           const details = event?.details ?? event
           const type = details?.type
@@ -391,6 +404,10 @@ export default Plugin.define({
               if (typeof delta === "string" && delta) tracker.push(sid, delta.length)
               break
             }
+            case "session.step.ended":
+              if (options.cache) cacheTracker.add(sid, data.tokens, data.assistantMessageID)
+              publishCache()
+              return
             case "session.execution.succeeded":
             case "session.execution.failed":
             case "session.execution.interrupted":
@@ -402,18 +419,19 @@ export default Plugin.define({
           }
           publishSpeed()
         } catch (error) {
-          log.write(`speed event failed: ${error?.message ?? error}`)
+          log.write(`usage event failed: ${error?.message ?? error}`)
         }
       }
       try {
-        disposers.push(context.data.listen(onSpeedEvent))
+        disposers.push(context.data.listen(onUsageEvent))
       } catch (error) {
-        log.write(`speed listen failed: ${error?.message ?? error}`)
+        log.write(`usage listen failed: ${error?.message ?? error}`)
       }
       const speedTimer = setInterval(publishSpeed, 500)
       disposers.push(() => {
         clearInterval(speedTimer)
         tracker.dispose()
+        cacheTracker.dispose()
       })
     }
 
@@ -425,6 +443,7 @@ export default Plugin.define({
             context={context}
             state={state}
             speeds={options.tps ? speeds : undefined}
+            caches={options.cache ? caches : undefined}
             sessionID={slot?.sessionID}
             colorMode={options.colorMode}
           />
