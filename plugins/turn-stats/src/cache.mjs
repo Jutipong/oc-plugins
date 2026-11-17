@@ -1,10 +1,10 @@
-// go-usage — cache-hit accounting (pure).
+// turn-stats — cache-hit accounting (pure).
 //
 // The runtime exposes token counters only when a step ends
 // (`session.step.ended`), never mid-stream. Those counters are deltas:
 // `tokens.input` is what the provider had to read fresh, `tokens.cache.read`
 // what came from the prompt cache (and `.write` what was stored). The tracker
-// sums them per session, so the footer can show how much of the whole session
+// sums them per session, so the line can show how much of the whole session
 // was served from cache:
 //
 //   hit% = read / (read + input)

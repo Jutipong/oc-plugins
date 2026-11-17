@@ -9,7 +9,6 @@ import { resolveOptions } from "./options.mjs"
 import { createUsageService } from "./service.mjs"
 import { normalizeStatus } from "./status.mjs"
 import { createObservable } from "./store.mjs"
-import { SPEED_TICK_MS, createUsageFeed } from "./usage-events.mjs"
 import { PromptUsage } from "./ui/line.tsx"
 
 const NO_FETCH = () => Promise.reject(new Error("fetch unavailable"))
@@ -23,7 +22,7 @@ export default Plugin.define({
     const userAgent = `opencode/${context.app?.version ?? "2.0"} (go-usage)`
     const fetchImpl = typeof globalThis.fetch === "function" ? globalThis.fetch.bind(globalThis) : null
 
-    log.write(`setup interval=${options.intervalSeconds}s base=${options.baseUrl} tps=${options.tps}`)
+    log.write(`setup interval=${options.intervalSeconds}s base=${options.baseUrl}`)
 
     const [authDoc, updateAuthDoc] = context.storage.store("auth", {
       initial: { access: null, refresh: null, expiresAt: 0, orgId: null },
@@ -81,10 +80,6 @@ export default Plugin.define({
       ...extra,
     })
     const state = createObservable(initialView)
-    // `{ [sessionID]: tokensPerSecond }` for sessions that are streaming now.
-    const speeds = createObservable({})
-    // `{ [sessionID]: { percent, input, read, write, output } }` per session.
-    const caches = createObservable({})
 
     // Mirror the three plan meters to the desk box's bridge, when one runs and
     // the bridge is enabled. The box is a local convenience: every failure is
@@ -366,43 +361,10 @@ export default Plugin.define({
 
     const disposers = []
 
-    // Live output speed and cache hit: the runtime streams text/reasoning
-    // deltas but no token counters until a step ends (see usage-events.mjs).
-    if ((options.tps || options.cache) && typeof context.data?.listen === "function") {
-      const feed = createUsageFeed({
-        directory: context.location?.directory,
-        tps: options.tps,
-        cache: options.cache,
-        charsPerToken: options.tpsCharsPerToken,
-        log,
-        onSpeed: (next) => speeds.set(next),
-        onCache: (next) => caches.set(next),
-      })
-      try {
-        disposers.push(context.data.listen(feed.onEvent))
-      } catch (error) {
-        log.write(`usage listen failed: ${error?.message ?? error}`)
-      }
-      const speedTimer = options.tps ? setInterval(feed.tick, SPEED_TICK_MS) : null
-      disposers.push(() => {
-        if (speedTimer) clearInterval(speedTimer)
-        feed.dispose()
-      })
-    }
-
     disposers.push(
       context.ui.slot({
         append: "prompt.footer.status",
-        render: (slot) => (
-          <PromptUsage
-            context={context}
-            state={state}
-            speeds={options.tps ? speeds : undefined}
-            caches={options.cache ? caches : undefined}
-            sessionID={slot?.sessionID}
-            colorMode={options.colorMode}
-          />
-        ),
+        render: () => <PromptUsage context={context} state={state} colorMode={options.colorMode} />,
       }),
     )
 

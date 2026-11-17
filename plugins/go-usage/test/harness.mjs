@@ -10,7 +10,7 @@ import fs from "node:fs"
 import path from "node:path"
 import { fileURLToPath } from "node:url"
 
-import { displayWidth, formatCacheBadge, formatReset, formatTps, formatTpsField, toNumber, toTime, toneForCacheHit, toneForMeter, toneForTps, truncate } from "../src/format.mjs"
+import { displayWidth, formatReset, toNumber, toTime, toneForMeter, truncate } from "../src/format.mjs"
 import { METER_KEYS, meterFromRaw, normalizeStatus } from "../src/status.mjs"
 import {
   DEFAULT_BASE_URL,
@@ -27,15 +27,12 @@ import {
   parseTokenOutcome,
 } from "../src/auth.mjs"
 import { createUsageService } from "../src/service.mjs"
-import { clampCharsPerToken, createSpeedTracker } from "../src/tps.mjs"
-import { SPEED_TICK_MS, createUsageFeed } from "../src/usage-events.mjs"
 import { resolveCommand } from "../src/commands.mjs"
 import { DEFAULT_BRIDGE_URL, clampInterval, normalizeBridgeUrl, resolveOptions } from "../src/options.mjs"
 import { createObservable } from "../src/store.mjs"
 import { createLogger, logPath } from "../src/log.mjs"
 import { openBrowser, openCommand } from "../src/open.mjs"
-import { STATUS_METERS, buildDetailLines, buildPromptLine, cacheForSession, speedForSession } from "../src/model.mjs"
-import { cacheHitPercent, createCacheTracker, readTokens } from "../src/cache.mjs"
+import { STATUS_METERS, buildDetailLines, buildPromptLine } from "../src/model.mjs"
 import { MOLE_PALETTE } from "../src/colors.mjs"
 import { cliConfigPath, configDirectory, patchCliConfig, removeCliPlugin } from "../scripts/lib.mjs"
 
@@ -173,148 +170,6 @@ test("tone buckets are shared across the CLI plugins (50 / 80)", () => {
   eq(toneForMeter(120), "danger")
 })
 
-test("speed label keeps one decimal below 10 and rounds above it", () => {
-  eq(formatTps(null), "—")
-  eq(formatTps(0), "0")
-  eq(formatTps(-3), "0")
-  eq(formatTps(0.44), "0.4")
-  eq(formatTps(7.44), "7.4")
-  eq(formatTps(9.94), "9.9")
-  eq(formatTps(9.96), "10")
-  eq(formatTps(45.3), "45")
-  eq(formatTps(120), "120")
-})
-
-test("speed buckets: >= 200 pink, >= 150 hot, >= 100 green, >= 60 amber, below that red", () => {
-  eq(toneForTps(0), "danger")
-  eq(toneForTps(59.9), "danger")
-  eq(toneForTps(60), "warning")
-  eq(toneForTps(99.9), "warning")
-  eq(toneForTps(100), "success")
-  eq(toneForTps(149.9), "success")
-  eq(toneForTps(150), "hot")
-  eq(toneForTps(199.9), "hot")
-  eq(toneForTps(200), "pink")
-  eq(toneForTps(900), "pink")
-})
-
-test("chars-per-token factor clamps to 1-8 with a 3.5 default", () => {
-  eq(clampCharsPerToken(undefined), 3.5)
-  eq(clampCharsPerToken("2.4"), 2.4)
-  eq(clampCharsPerToken(0), 3.5)
-  eq(clampCharsPerToken("x"), 3.5)
-  eq(clampCharsPerToken(99), 8)
-})
-
-test("speed tracker converts a delta window into tokens/second", () => {
-  const tracker = createSpeedTracker({ charsPerToken: 4, windowMs: 2000, freshMs: 1500, minSpanMs: 500 })
-  tracker.start("s1", 0)
-  tracker.push("s1", 40, 1000) // 10 tokens
-  tracker.push("s1", 40, 1500) // 20 tokens over a 500 ms window
-  eq(tracker.snapshot(1500), { s1: 40 })
-
-  tracker.push("s1", 400, 2000) // 120 tokens over 1000 ms
-  eq(tracker.snapshot(2000), { s1: 120 })
-
-  // A quiet session hides after the freshness window instead of showing stale speed.
-  eq(tracker.snapshot(3000), { s1: 120 })
-  eq(tracker.snapshot(3501), {})
-
-  tracker.dispose()
-})
-
-test("speed tracker isolates sessions, resets on start and forgets on end", () => {
-  const tracker = createSpeedTracker({ charsPerToken: 4 })
-  tracker.start("a", 0)
-  tracker.start("b", 0)
-  tracker.push("a", 80, 1000) // one delta: 20 tokens over the 500 ms floor
-  tracker.push("b", 40, 1000)
-  eq(tracker.snapshot(1000), { a: 40, b: 20 })
-
-  tracker.start("a", 1200) // new step: old deltas no longer count
-  tracker.push("a", 40, 1500)
-  eq(tracker.snapshot(1500), { a: 20, b: 20 })
-
-  tracker.end("a")
-  eq(tracker.snapshot(1500), { b: 20 })
-
-  tracker.dispose()
-})
-
-test("cache hit counts cached reads over read + fresh input", () => {
-  eq(readTokens({ input: 100, cache: { read: 900, write: 50 } }), { input: 100, output: 0, read: 900, write: 50 })
-  eq(readTokens({}), { input: 0, output: 0, read: 0, write: 0 })
-  eq(readTokens({ input: "x", cache: { read: -5 } }), { input: 0, output: 0, read: 0, write: 0 })
-
-  eq(cacheHitPercent({ input: 1000, cache: { read: 9000 } }), 90)
-  eq(cacheHitPercent({ input: 0, cache: { read: 9000 } }), 100)
-  eq(cacheHitPercent({ input: 100, cache: { read: 0 } }), 0)
-  eq(cacheHitPercent({ input: 1, cache: { read: 999 } }), 99) // floor: never claim 100 by rounding
-  eq(cacheHitPercent({ input: 100, cache: { read: 100, write: 800 } }), 50) // writes are not hits
-  eq(cacheHitPercent({}), null)
-  eq(cacheHitPercent({ cache: { read: 0, write: 400 } }), null)
-})
-
-test("cache tracker sums per-step counters per session and forgets the oldest", () => {
-  const tracker = createCacheTracker({ maxSessions: 2 })
-  tracker.add("a", { input: 1000, output: 10, cache: { read: 0, write: 1000 } })
-  tracker.add("a", { input: 100, output: 20, cache: { read: 900, write: 0 } })
-  tracker.add("b", { input: 50, cache: { read: 50 } })
-  eq(tracker.snapshot(), {
-    a: { percent: 45, input: 1100, read: 900, write: 1000, output: 30 },
-    b: { percent: 50, input: 50, read: 50, write: 0, output: 0 },
-  })
-
-  tracker.add("a", { input: 0, cache: { read: 0 } }) // empty deltas are ignored
-  eq(tracker.snapshot().a.percent, 45)
-
-  tracker.add("c", { input: 10, cache: { read: 0 } }) // evicts the least recently used
-  eq(Object.keys(tracker.snapshot()), ["b", "c"])
-
-  tracker.clear("b")
-  eq(Object.keys(tracker.snapshot()), ["c"])
-  tracker.dispose()
-  eq(tracker.snapshot(), {})
-})
-
-test("cache tracker ignores a re-delivered step counter", () => {
-  const tracker = createCacheTracker()
-  tracker.add("a", { input: 100, cache: { read: 900 } }, "msg_1")
-  tracker.add("a", { input: 100, cache: { read: 900 } }, "msg_1")
-  eq(tracker.snapshot().a, { percent: 90, input: 100, read: 900, write: 0, output: 0 })
-
-  tracker.add("a", { input: 100, cache: { read: 0 } }, "msg_2")
-  eq(tracker.snapshot().a.percent, 81) // 900 / 1100
-
-  tracker.add("b", { input: 100, cache: { read: 900 } }, "msg_1") // other session, same id
-  eq(tracker.snapshot().b.percent, 90)
-  tracker.dispose()
-})
-
-test("cache and speed fields keep a fixed width so the row never shifts", () => {
-  eq(formatCacheBadge(null), "   —")
-  eq(formatCacheBadge(3), "  3%")
-  eq(formatCacheBadge(87), " 87%")
-  eq(formatCacheBadge(100), "100%")
-  eq(formatCacheBadge(140), "100%")
-  eq(formatCacheBadge("x"), "   —")
-  eq(displayWidth(formatCacheBadge(3)), displayWidth(formatCacheBadge(87)))
-  eq(displayWidth(formatCacheBadge(null)), displayWidth(formatCacheBadge(100)))
-
-  eq(formatTpsField(0), "  0")
-  eq(formatTpsField(7.4), "7.4")
-  eq(formatTpsField(45), " 45")
-  eq(formatTpsField(106), "106")
-  eq(displayWidth(formatTpsField(5)), displayWidth(formatTpsField(555)))
-
-  eq(toneForCacheHit(100), "success")
-  eq(toneForCacheHit(80), "success")
-  eq(toneForCacheHit(79.9), "base")
-  eq(toneForCacheHit(50), "base")
-  eq(toneForCacheHit(49.9), "warning")
-  eq(toneForCacheHit(null), "warning")
-})
-
 test("truncate is unicode-aware and displayWidth counts cells", () => {
   eq(truncate("hello", 10), "hello")
   eq(truncate("hello", 5), "hello")
@@ -416,23 +271,8 @@ test("normalizeStatus shapes the footer data", () => {
 
 test("prompt line renders bracketed H/W/M with faint labels and toned values", () => {
   const line = buildPromptLine(goStatusView())
-  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡  0t/s]")
-  eq(line.map((segment) => segment.text), [
-    "[",
-    "H:",
-    "92%",
-    " · ",
-    "W:",
-    "45%",
-    " · ",
-    "M:",
-    "44%",
-    " · ",
-    "⚡",
-    "  0",
-    "t/s",
-    "]",
-  ])
+  eq(flatText(line), "[H:92% · W:45% · M:44%]")
+  eq(line.map((segment) => segment.text), ["[", "H:", "92%", " · ", "W:", "45%", " · ", "M:", "44%", "]"])
   eq(line.map((segment) => segment.tone), [
     "faint",
     "muted",
@@ -444,182 +284,28 @@ test("prompt line renders bracketed H/W/M with faint labels and toned values", (
     "muted",
     "success",
     "faint",
-    "muted",
-    "muted",
-    "muted",
-    "faint",
   ])
 })
 
 test("prompt line uses muted placeholders for missing meters", () => {
   const status = normalizeStatus({ product: "go", access: { meters: { fiveHour: null, week: null, month: null } } }, NOW)
   const line = buildPromptLine({ phase: "ready", status })
-  eq(flatText(line), "[H:— · W:— · M:— · ⚡  0t/s]")
+  eq(flatText(line), "[H:— · W:— · M:—]")
   eq(line[1].tone, "muted")
   eq(line[2].tone, "muted")
   eq(line[4].tone, "muted")
   eq(line[5].tone, "muted")
 
   const partial = normalizeStatus({ product: "go", access: { meters: { fiveHour: { usedMicroCents: 1, limitMicroCents: 2 } } } }, NOW)
-  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:— · ⚡  0t/s]")
+  eq(flatText(buildPromptLine({ phase: "ready", status: partial })), "[H:50% · W:— · M:—]")
 })
 
 test("prompt line marks stale values with a warning prefix", () => {
   const line = buildPromptLine(goStatusView({ stale: true, error: "HTTP 500" }))
-  eq(flatText(line), "! [H:92% · W:45% · M:44% · ⚡  0t/s]")
+  eq(flatText(line), "! [H:92% · W:45% · M:44%]")
   eq(line[0].tone, "warning")
   eq(line[1].text, "[")
   eq(line[3].tone, "danger")
-})
-
-test("prompt line appends the live speed field with tier tones", () => {
-  const line = buildPromptLine(goStatusView({ speed: 120.3 }))
-  eq(flatText(line), "[H:92% · W:45% · M:44% · ⚡120t/s]")
-  eq(line.map((segment) => segment.text), [
-    "[",
-    "H:",
-    "92%",
-    " · ",
-    "W:",
-    "45%",
-    " · ",
-    "M:",
-    "44%",
-    " · ",
-    "⚡",
-    "120",
-    "t/s",
-    "]",
-  ])
-  eq(line[10].tone, "muted")
-  eq(line[11].tone, "success")
-  eq(line[12].tone, "muted")
-
-  eq(flatText(buildPromptLine(goStatusView({ speed: 70.4 }))), "[H:92% · W:45% · M:44% · ⚡ 70t/s]")
-  eq(buildPromptLine(goStatusView({ speed: 70.4 }))[11].tone, "warning")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 180.4 }))), "[H:92% · W:45% · M:44% · ⚡180t/s]")
-  eq(buildPromptLine(goStatusView({ speed: 180.4 }))[11].tone, "hot")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 250.4 }))), "[H:92% · W:45% · M:44% · ⚡250t/s]")
-  eq(buildPromptLine(goStatusView({ speed: 250.4 }))[11].tone, "pink")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 4.26 }))), "[H:92% · W:45% · M:44% · ⚡4.3t/s]")
-  eq(buildPromptLine(goStatusView({ speed: 4.26 }))[11].tone, "danger")
-
-  const idle = buildPromptLine(goStatusView({ speed: null }))
-  eq(flatText(idle), "[H:92% · W:45% · M:44% · ⚡  0t/s]")
-  eq(idle[11].text, "  0")
-  eq(idle[11].tone, "muted")
-  eq(flatText(buildPromptLine(goStatusView({ speed: 0 }))), "[H:92% · W:45% · M:44% · ⚡  0t/s]")
-  eq(buildPromptLine(goStatusView({ speed: 0 }))[11].tone, "muted")
-})
-
-test("speed only renders on the ready row and drops first when narrow", () => {
-  eq(flatText(buildPromptLine({ phase: "error", error: "HTTP 500", speed: 45 })), "Go !")
-  eq(flatText(buildPromptLine({ phase: "checking", speed: 45 })), "Go …")
-
-  const view = goStatusView({ speed: 45.3 })
-  eq(flatText(buildPromptLine(view, { width: 33 })), "[H:92% · W:45% · M:44% · ⚡ 45t/s]")
-  eq(flatText(buildPromptLine(view, { width: 32 })), "[H:92% · W:45% · M:44%]")
-  eq(flatText(buildPromptLine(view, { width: 22 })), "[H:92% · W:45%]")
-
-  const idle = goStatusView({ speed: null })
-  eq(flatText(buildPromptLine(idle, { width: 33 })), "[H:92% · W:45% · M:44% · ⚡  0t/s]")
-  eq(flatText(buildPromptLine(idle, { width: 32 })), "[H:92% · W:45% · M:44%]")
-})
-
-test("speedForSession only returns the footer session's own live rate", () => {
-  const speeds = { ses_a: 45, ses_b: 8.4 }
-  eq(speedForSession(speeds, "ses_a"), 45)
-  eq(speedForSession(speeds, "ses_b"), 8.4)
-  eq(speedForSession(speeds, "ses_c"), null)
-  eq(speedForSession(speeds, undefined), null)
-  eq(speedForSession(undefined, "ses_a"), null)
-  eq(speedForSession({ ses_a: 0 }, "ses_a"), null)
-  eq(speedForSession({ ses_a: "x" }, "ses_a"), null)
-})
-
-test("cacheForSession only returns the footer session's own counters", () => {
-  const caches = { ses_a: { percent: 87 }, ses_b: { percent: 12 } }
-  eq(cacheForSession(caches, "ses_a"), { percent: 87 })
-  eq(cacheForSession(caches, "ses_c"), null)
-  eq(cacheForSession(caches, undefined), null)
-  eq(cacheForSession(undefined, "ses_a"), null)
-  eq(cacheForSession({ ses_a: 87 }, "ses_a"), null)
-})
-
-test("prompt line adds the cache field after a pipe and keeps the speed field", () => {
-  const line = buildPromptLine(goStatusView({ speed: 106, cache: { percent: 87 } }))
-  eq(flatText(line), "[H:92% · W:45% · M:44% | C: 87% · ⚡106t/s]")
-  eq(line.map((segment) => segment.text), [
-    "[",
-    "H:",
-    "92%",
-    " · ",
-    "W:",
-    "45%",
-    " · ",
-    "M:",
-    "44%",
-    " | ",
-    "C:",
-    " 87%",
-    " · ",
-    "⚡",
-    "106",
-    "t/s",
-    "]",
-  ])
-  eq(line[9].tone, "faint")
-  eq(line[10].tone, "muted")
-  eq(line[11].tone, "success")
-
-  eq(flatText(buildPromptLine(goStatusView({ cache: { percent: 50 } }))), "[H:92% · W:45% · M:44% | C: 50% · ⚡  0t/s]")
-  eq(buildPromptLine(goStatusView({ cache: { percent: 50 } }))[11].tone, "base")
-  eq(buildPromptLine(goStatusView({ cache: { percent: 12 } }))[11].tone, "warning")
-
-  const empty = buildPromptLine(goStatusView({ cache: null }))
-  eq(flatText(empty), "[H:92% · W:45% · M:44% | C:   — · ⚡  0t/s]")
-  eq(empty[11].tone, "muted")
-})
-
-test("cache field never shifts the row when values change width", () => {
-  const widths = [3, 45, 100, null].map(
-    (percent) => displayWidth(flatText(buildPromptLine(goStatusView({ speed: 5, cache: { percent } })))),
-  )
-  eq(new Set(widths).size, 1)
-
-  const speeds = [5, 45, 555].map(
-    (speed) => displayWidth(flatText(buildPromptLine(goStatusView({ speed, cache: { percent: 87 } })))),
-  )
-  eq(new Set(speeds).size, 1)
-})
-
-test("cache field widens the default row and drops after the speed field", () => {
-  const full = goStatusView({ speed: 106, cache: { percent: 87 } })
-  eq(displayWidth(flatText(buildPromptLine(full))), 42)
-  // Widest case: every meter at 100%.
-  const maxed = normalizeStatus(
-    {
-      product: "go",
-      access: {
-        meters: {
-          fiveHour: { usedMicroCents: "2000000000", limitMicroCents: "2000000000" },
-          week: { usedMicroCents: "2000000000", limitMicroCents: "2000000000" },
-          month: { usedMicroCents: "2000000000", limitMicroCents: "2000000000" },
-        },
-      },
-    },
-    NOW,
-  )
-  eq(displayWidth(flatText(buildPromptLine({ phase: "ready", status: maxed, speed: 999, cache: { percent: 100 } }))), 45)
-
-  eq(flatText(buildPromptLine(full, { width: 41 })), "[H:92% · W:45% · M:44% | C: 87%]")
-  eq(flatText(buildPromptLine(full, { width: 32 })), "[H:92% · W:45% · M:44% | C: 87%]")
-  eq(flatText(buildPromptLine(full, { width: 31 })), "[H:92% · W:45% · M:44%]")
-  eq(flatText(buildPromptLine(full, { width: 22 })), "[H:92% · W:45%]")
-  eq(flatText(buildPromptLine(full, { width: 8 })), "[H:92%]")
-
-  // Cache disabled: the line is back to the compact layout and 40 cells.
-  eq(displayWidth(flatText(buildPromptLine(goStatusView({ speed: 106 })))), 33)
 })
 
 test("prompt line drops trailing meters whole and keeps the brackets balanced", () => {
@@ -651,11 +337,7 @@ test("prompt line shows a state marker for every non-ready phase", () => {
 test("prompt line never exceeds the requested width and never leaks internals", () => {
   const views = [
     goStatusView(),
-    goStatusView({ speed: 45.3 }),
-    goStatusView({ speed: 4.2, stale: true }),
-    goStatusView({ speed: 106, cache: { percent: 87 } }),
-    goStatusView({ speed: 106, cache: null, stale: true }),
-    goStatusView({ cache: { percent: 3 } }),
+    goStatusView({ stale: true }),
     goStatusView({ stale: true, error: "HTTP 500" }),
     { phase: "checking" },
     { phase: "loading" },
@@ -979,96 +661,6 @@ await testAsync("service surfaces unauthorized, absent, http and network errors"
   eq(scopedMock.calls[0].init.headers["x-org-id"], "wrk_env")
 })
 
-// ---------------------------------------------------------------------------
-// usage events (runtime feed)
-// ---------------------------------------------------------------------------
-
-function usageEvent(type, data = {}, directory = "/work") {
-  return { details: { type, data, location: { directory } } }
-}
-
-test("usage feed turns deltas into a speed snapshot", () => {
-  const speeds = []
-  const feed = createUsageFeed({ directory: "/work", charsPerToken: 3.5, onSpeed: (next) => speeds.push(next) })
-  feed.onEvent(usageEvent("session.step.started", { sessionID: "ses_a" }))
-  feed.onEvent(usageEvent("session.text.delta", { sessionID: "ses_a", delta: "hello world!!!" }))
-  feed.tick()
-  eq(speeds.length, 1)
-  eq(speeds[0].ses_a, 8) // 14 chars / 3.5 per token over the 500 ms floor
-  feed.tick()
-  eq(speeds.length, 1) // an unchanged snapshot is not republished
-  feed.onEvent(usageEvent("session.execution.succeeded", { sessionID: "ses_a" }))
-  eq(speeds.length, 2)
-  eq(speeds[1], {})
-  feed.dispose()
-})
-
-test("usage feed ignores other directories and unrelated events", () => {
-  const speeds = []
-  const caches = []
-  const feed = createUsageFeed({ directory: "/work", onSpeed: (next) => speeds.push(next), onCache: (next) => caches.push(next) })
-  feed.onEvent(usageEvent("session.text.delta", { sessionID: "ses_a", delta: "zzzz" }, "/elsewhere"))
-  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens: { input: 1, cache: { read: 1 } } }, "/elsewhere"))
-  feed.tick()
-  eq(speeds, [])
-  eq(caches, [])
-
-  feed.onEvent(null)
-  feed.onEvent({})
-  feed.onEvent({ details: { type: "session.text.delta" } })
-  feed.onEvent(usageEvent("session.updated", { sessionID: "ses_a" }))
-  feed.onEvent(usageEvent("session.text.delta", { delta: "no session id" }))
-  eq(speeds, [])
-  eq(caches, [])
-  feed.dispose()
-})
-
-test("usage feed accumulates cache counters and skips replayed steps", () => {
-  const caches = []
-  const feed = createUsageFeed({ tps: false, directory: "/work", onCache: (next) => caches.push(next) })
-  const tokens = { input: 100, cache: { read: 900 } }
-  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens, assistantMessageID: "msg_1" }))
-  eq(caches.length, 1)
-  eq(caches[0].ses_a.percent, 90)
-
-  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens, assistantMessageID: "msg_1" }))
-  eq(caches.length, 1) // replayed durable event + identical snapshot
-
-  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens: { input: 100, cache: { read: 0 } }, assistantMessageID: "msg_2" }))
-  eq(caches.length, 2)
-  eq(caches[1].ses_a.percent, 81) // 900 / 1100
-  feed.dispose()
-})
-
-test("usage feed honours the tps and cache switches", () => {
-  let speed = 0
-  let cache = 0
-  const feed = createUsageFeed({ tps: false, cache: false, onSpeed: () => (speed += 1), onCache: () => (cache += 1) })
-  feed.onEvent(usageEvent("session.text.delta", { sessionID: "ses_a", delta: "xxxx" }))
-  feed.onEvent(usageEvent("session.step.ended", { sessionID: "ses_a", tokens: { input: 5, cache: { read: 5 } } }))
-  feed.tick()
-  eq(speed, 0)
-  eq(cache, 0)
-  eq(SPEED_TICK_MS, 500)
-  feed.dispose()
-})
-
-test("usage feed logs instead of throwing when a publisher fails", () => {
-  const lines = []
-  const feed = createUsageFeed({
-    directory: "/work",
-    log: { write: (line) => lines.push(line) },
-    onSpeed: () => {
-      throw new Error("boom")
-    },
-  })
-  feed.onEvent(usageEvent("session.text.delta", { sessionID: "ses_a", delta: "xxxx" }))
-  feed.tick()
-  eq(lines.length, 1)
-  includes(lines[0], "boom")
-  feed.dispose()
-})
-
 await testAsync("fetchJson aborts a request that outlives its timeout", async () => {
   const calls = []
   const hung = (url, init) => {
@@ -1114,24 +706,6 @@ test("option and env resolution uses GO_USAGE_*", () => {
   eq(resolveOptions({ env: { GO_USAGE_COLOR_MODE: "theme" } }).colorMode, "theme")
   eq(resolveOptions({ options: { colorMode: "wat" } }).colorMode, "mole")
   eq(resolveOptions({ options: { colorMode: "theme" }, env: { GO_USAGE_COLOR_MODE: "mole" } }).colorMode, "theme")
-  eq(resolveOptions({}).tps, true)
-  eq(resolveOptions({ options: { tps: false } }).tps, false)
-  eq(resolveOptions({ options: { tps: true } }).tps, true)
-  eq(resolveOptions({ env: { GO_USAGE_TPS: "0" } }).tps, false)
-  eq(resolveOptions({ env: { GO_USAGE_TPS: "off" } }).tps, false)
-  eq(resolveOptions({ env: { GO_USAGE_TPS: "1" } }).tps, true)
-  eq(resolveOptions({}).tpsCharsPerToken, 3.5)
-  eq(resolveOptions({ options: { tpsFactor: 2.4 } }).tpsCharsPerToken, 2.4)
-  eq(resolveOptions({ env: { GO_USAGE_TPS_FACTOR: "2.5" } }).tpsCharsPerToken, 2.5)
-  eq(resolveOptions({ env: { GO_USAGE_TPS_FACTOR: "99" } }).tpsCharsPerToken, 8)
-  eq(resolveOptions({ env: { GO_USAGE_TPS_FACTOR: "x" } }).tpsCharsPerToken, 3.5)
-  eq(resolveOptions({ options: { tpsFactor: 2.4 }, env: { GO_USAGE_TPS_FACTOR: "5" } }).tpsCharsPerToken, 2.4)
-  eq(resolveOptions({}).cache, true)
-  eq(resolveOptions({ options: { cache: false } }).cache, false)
-  eq(resolveOptions({ options: { cache: true } }).cache, true)
-  eq(resolveOptions({ env: { GO_USAGE_CACHE: "0" } }).cache, false)
-  eq(resolveOptions({ env: { GO_USAGE_CACHE: "off" } }).cache, false)
-  eq(resolveOptions({ env: { GO_USAGE_CACHE: "1" } }).cache, true)
   eq(resolveOptions({}).bridge, true)
   eq(resolveOptions({ options: { bridge: false } }).bridge, false)
   eq(resolveOptions({ options: { bridge: true } }).bridge, true)
@@ -1260,12 +834,8 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(entry, "prompt.footer.status")
   excludes(entry, "sidebar.content", "the plugin owns the prompt footer only")
   includes(entry, "resolveCommand", "no-argument /go-usage must route through resolveCommand")
-  includes(entry, "createUsageFeed", "the footer needs the live speed tracker")
-  includes(entry, "context.data.listen", "the speed tracker follows the runtime event stream")
-  const feed = fs.readFileSync(path.join(PLUGIN_DIR, "src/usage-events.mjs"), "utf8")
-  includes(feed, "createSpeedTracker", "the feed owns the live speed tracker")
-  includes(feed, "createCacheTracker", "the feed owns the session cache-hit tracker")
-  includes(feed, 'case "session.step.ended"', "cache counters arrive at step end")
+  excludes(entry, "context.data.listen", "the live meters moved to turn-stats")
+  excludes(entry, "createUsageFeed", "the live meters moved to turn-stats")
   includes(entry, 'slash: { name: "go-usage", arguments: true }')
   includes(entry, 'slash: { name: "go-usage-login" }')
   includes(entry, 'slash: { name: "go-usage-logout" }')
@@ -1274,16 +844,13 @@ test("package wiring matches the CLI plugin conventions", () => {
   includes(entry, "go-usage.refresh", "palette must keep a refresh entry")
   includes(entry, "loginEpoch += 1", "logout must invalidate in-flight logins")
   includes(entry, "suppressAdopt = true", "logout must stop re-adopting the stored session")
-  includes(entry, "sessionID={slot?.sessionID}", "the footer must show only its own session's speed")
   const ui = fs.readFileSync(path.join(PLUGIN_DIR, "src/ui/line.tsx"), "utf8")
   includes(ui, "buildPromptLine")
-  includes(ui, "speedForSession")
-  includes(ui, "cacheForSession")
+  excludes(ui, "speedForSession")
+  excludes(ui, "cacheForSession")
   includes(ui, "colorMode={props.colorMode}")
   includes(ui, "RGBA.fromInts")
   includes(ui, "MOLE_PALETTE")
-  includes(ui, "deepGreen", "the hot tier must resolve to the deep green")
-  includes(ui, "draculaPink", "the pink tier must resolve to Dracula pink")
 })
 
 test("/go-usage login shares the already-connected guard with /go-usage-login", () => {

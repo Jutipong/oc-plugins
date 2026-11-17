@@ -3,7 +3,8 @@
 Monorepo for OpenCode V2 plugins. Plugins: **esp-buddy** — a playful desk buddy
 that mirrors OpenCode activity onto an ESP32-S3 RLCD buddy screen (ported from
 the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) —
-**go-usage** — OpenCode Go plan meters in the CLI prompt footer — and
+**go-usage** — OpenCode Go plan meters in the CLI prompt footer —
+**turn-stats** — cache hit, live t/s and turn timer above the CLI prompt — and
 **system-status** — CPU load / RAM in the prompt footer.
 
 ## Commits — explicit confirmation required
@@ -181,22 +182,12 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
 - **Surface**: prompt footer only — `context.ui.slot({ append: "prompt.footer.status", ... })`.
   Entry `tui.ts` → `src/entry.tsx` (`Plugin.define({ id: "go-usage", ... })`).
   No sidebar/frame/bars.
-- **Line**: `[H:92% · W:45% · M:44% | C: 87% · ⚡103t/s]` (H rolling 5 h, W
-  weekly, M monthly, C session cache hit; `⚡nt/s` and `C: n%` are always
-  present on the ready row — `⚡  0t/s` in muted gray when the footer's own
-  session is idle, `C:   —` until that session ends a step). Labels are muted,
-  values use the 50/80 threshold tone (cache is inverted: green ≥ 80, plain
-  50–79, amber < 50), brackets and ` · ` are faint, ` | ` is faint and splits
-  the plan group from the session group; missing meters render `—`; stale
-  values prefix `! `. Both numbers are padded to a fixed width
-  (`C:  3%`/`C: 87%`/`C:100%`, `⚡  0`/`⚡ 45`/`⚡103`) followed by the `t/s`
-  unit, so a digit change never shifts the row; only the H/W/M meters can
-  still move by a cell when they cross 10% or 100%. The speed field is toned
-  by tier: green ≥ 100 t/s (deep green #4CAF50 from 150, Dracula pink #FF79C6
-  from 200), amber 60–99, red < 60 while generating. Drop order when narrow:
-  `⚡`, then `C`, then `M`, then `W`, keeping the brackets balanced. The row
-  caps at 45 cells with the cache field (36 without). Non-ready states are
-  `Go …` / `Go —` / `Go !` (no session fields).
+- **Line**: `[H:92% · W:45% · M:44%]` (H rolling 5 h, W weekly, M monthly).
+  Labels are muted, values use the 50/80 threshold tone, brackets and ` · `
+  are faint; missing meters render `—`; stale values prefix `! `. Drop order
+  when narrow: `M`, then `W`, keeping the brackets balanced. The row caps at
+  36 cells. Non-ready states are `Go …` / `Go —` / `Go !`. The session meters
+  (cache/t-s/turn time) moved to the **turn-stats** plugin.
 - **Data source**: `GET {console}/api/go/status` (base
   `https://opencode.ai/console`, env/option overridable). Response is nullable
   (no subscription): `access.meters.{fiveHour,week,month}` each
@@ -219,10 +210,7 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
   login or stale storage cannot resurrect the session.
 - **Options/env**: `interval` / `GO_USAGE_INTERVAL` (300 s, 15–3600),
   `baseUrl` / `GO_USAGE_BASE_URL`, `org` / `GO_USAGE_ORG`, `colorMode` /
-  `GO_USAGE_COLOR_MODE` (`mole` / `theme`), `tps` / `GO_USAGE_TPS` (on;
-  `0`/`false`/`off`/`no` hides the speed field), `tpsFactor` /
-  `GO_USAGE_TPS_FACTOR` (chars per token, default 3.5, clamped 1–8), `cache` /
-  `GO_USAGE_CACHE` (on; `0`/`false`/`off`/`no` hides the `C:` field),
+  `GO_USAGE_COLOR_MODE` (`mole` / `theme`),
   `openBrowser` / `GO_USAGE_NO_OPEN=1`, `bridge` / `GO_USAGE_BRIDGE` (on;
   `0`/`false`/`off`/`no` hides the desk-box mirror), `bridgeUrl` /
   `GO_USAGE_BRIDGE_URL` (default `http://127.0.0.1:7331/v1/usage`),
@@ -232,31 +220,55 @@ the ESP32-S3-AI repo's legacy "avatar" plugin v6; the board side lives there) �
 - **Bridge**: after every successful/absent refresh the entry POSTs
   `{hour, week, month}` percentages to the local esp-buddy desk box; failures
   are swallowed, it never delays a fetch, and `bridge: false` removes it.
-- **Runtime events**: `src/usage-events.mjs` (`createUsageFeed`) owns the
-  `context.data.listen` mapping — deltas → speed tracker, `step.ended` → cache
-  tracker, `execution.*`/`idle` → end, filtered to `location.directory`, with
-  signature dedupe (an empty `{}` snapshot is never published). The entry only
-  wires listener + 500 ms tick; **do not** move this mapping back inline — the
-  harness drives the feed with synthetic events.
 - **HTTP timeout**: `fetchJson` aborts after 15 s (`DEFAULT_FETCH_TIMEOUT_MS`),
   so a hung request cannot wedge the refresh `inFlight` promise forever.
-- **Speed meter**: the runtime streams `session.text.delta` / `.reasoning.delta`
-  but exposes no mid-stream token counters (verified on 2.2.5), so the
-  tracker estimates t/s from delta characters in a 2 s sliding window
-  (minimum span 500 ms, hides after 1.5 s without a delta). It listens via
-  `context.data.listen`, filters by `location.directory`, ignores child
-  sessions, and the slot renders only the rate of its own `sessionID`.
-  Publish is throttled to 2/s and skipped when the visible value is
-  unchanged.
-- **Cache hit**: taken from the real counters at `session.step.ended`
-  (`data.tokens = {input, output, reasoning, cache:{read,write}}`, per-step
-  deltas), summed per session by `src/cache.mjs` (LRU bound 32 sessions, kept
-  across turns, no reset on idle; `assistantMessageID` dedupes a replayed
-  durable event). `hit% = floor(read / (read + input))`, `100` when the step
-  had no fresh input, `—` before the first step.
 - **Tests**: `cd plugins/go-usage && node test/harness.mjs` (offline, no
-  network; must print `ALL TESTS PASSED`). Covers meter math/tones, the speed
-  tracker (window, freshness, per-session isolation, factor clamp), cache hit
-  math/accumulation/LRU/fixed-width padding, the runtime event feed, line
-  clipping, auth flow, fetch timeout, options,
-  packaging.
+  network; must print `ALL TESTS PASSED`). Covers meter math/tones, line
+  clipping, auth flow, fetch timeout, options, packaging.
+
+## turn-stats specifics (CLI plugin, verified 2026-11-18 on OpenCode 2.2.5)
+
+- **Surface**: `context.ui.slot({ append: "session.composer.top", ... })` — one
+  line **right-aligned above the input prompt** (not in the prompt footer).
+  The slot receives reactive `{ sessionID }` only (**no `width`**); the host
+  stacks slot content in a full-width column, so the renderer wraps the line
+  in `<box flexDirection="row" justifyContent="flex-end">` and the model keeps
+  its own 45-cell cap. Entry `tui.ts` → `src/entry.tsx`
+  (`Plugin.define({ id: "turn-stats", ... })`). No commands, no storage, no
+  network.
+- **Line**: `⏱ 00:45 · ▤ 87% · ⚡103t/s` — `⏱` turn wall-clock (`execution.
+  started` → `succeeded/failed/interrupted`; counts up live, freezes muted
+  after the end until the next turn; `00:00` before the first turn; `MM:SS`,
+  minutes keep counting past 99 so the width never changes), `▤` session cache
+  hit (`hit% = floor(read / (read + input))`, writes are misses; green ≥ 80,
+  plain 50–79, amber < 50, `▤   —` before the first step), `⚡` live output
+  speed (always present, muted `⚡  0t/s` when idle; tiers pink ≥ 200, deep
+  green 150–199, green 100–149, amber 60–99, red < 60). No brackets; icons are
+  muted and ` · ` faint, every number is padded to a fixed width (`⏱` 6,
+  `▤` 4, `⚡` 3) so value changes never shift the row. Drop order when narrow:
+  `⚡`, then `▤`, then `⏱`; cap 45 cells. Only the slot's own `sessionID` is
+  shown.
+- **Event feed**: `src/usage-events.mjs` (`createUsageFeed`) owns the
+  `context.data.listen` mapping, filtered to `location.directory` — deltas →
+  speed tracker, `step.ended` → cache tracker (`assistantMessageID` dedupes
+  replayed durable events), `execution.started` → speed + turn clock,
+  `step.started` → speed window only (never resets a running turn),
+  `execution.*`/`idle` → end. Publishes dedupe by signature; the turn
+  signature is second-granularity (`r|f` + `floor(ms/1000)`), so the clock
+  redraws at most once a second. `now` is injectable for deterministic tests.
+  Do not move this mapping inline — the harness drives the feed with synthetic
+  events.
+- **Speed estimate**: deltas carry characters, not tokens (no mid-stream
+  counters on 2.2.5), so t/s = chars / factor over a 2 s sliding window
+  (minimum span 500 ms, hides after 1.5 s quiet); `tpsFactor` default 3.5
+  (Thai text ≈ 2.4), clamped 1–8.
+- **Options/env**: `colorMode` / `TURN_STATS_COLOR_MODE` (`mole` default /
+  `theme`), `tpsFactor` / `TURN_STATS_TPS_FACTOR`, `debug` /
+  `TURN_STATS_DEBUG=1` (`~/.config/opencode/plugins/turn-stats-debug.log`,
+  512 KB truncate). Install via `scripts/install.mjs` → global `cli.json`
+  (no options written).
+- **Tests**: `cd plugins/turn-stats && node test/harness.mjs` (offline; must
+  print `ALL TESTS PASSED`). Covers timer math/formats, tps window/freshness,
+  cache math/LRU/dedupe, feed mapping (turn start/end, step-start isolation,
+  second-granularity publishing, directory filter, publisher failure), line
+  segments/tones/padding/drop order, options, install helpers, packaging.

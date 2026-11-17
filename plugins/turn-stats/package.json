@@ -1,0 +1,14 @@
+{
+  "name": "turn-stats",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Per-turn cache hit, live output speed and turn timer as one right-aligned line above the OpenCode V2 CLI prompt",
+  "type": "module",
+  "main": "tui.ts",
+  "exports": {
+    "./tui": "./tui.ts"
+  },
+  "scripts": {
+    "test": "node test/harness.mjs"
+  }
+}

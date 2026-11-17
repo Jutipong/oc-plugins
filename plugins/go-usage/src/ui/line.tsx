@@ -2,7 +2,7 @@
 import { For, createMemo, createSignal, onCleanup, onMount } from "solid-js"
 import { RGBA } from "@opentui/core"
 import { MOLE_PALETTE } from "../colors.mjs"
-import { buildPromptLine, cacheForSession, speedForSession } from "../model.mjs"
+import { buildPromptLine } from "../model.mjs"
 
 const MOLE_RGBA = Object.fromEntries(
   Object.entries(MOLE_PALETTE).map(([tone, rgb]) => [tone, RGBA.fromInts(rgb[0], rgb[1], rgb[2], 255)]),
@@ -10,8 +10,6 @@ const MOLE_RGBA = Object.fromEntries(
 
 /** Map a semantic model tone to a resolved theme token, or Mole's fixed palette. */
 function toneColor(theme, tone, colorMode = "mole") {
-  if (tone === "hot") return MOLE_RGBA.deepGreen // fixed in both color modes
-  if (tone === "pink") return MOLE_RGBA.draculaPink // fixed in both color modes
   if (colorMode === "mole") {
     if (tone === "faint" || tone === "muted") return MOLE_RGBA.muted
     if (tone === "border") return MOLE_RGBA.border
@@ -57,27 +55,15 @@ export function LineText(props) {
  */
 export function PromptUsage(props) {
   const [view, setView] = createSignal(props.state.get())
-  const [speeds, setSpeeds] = createSignal(props.speeds?.get?.() ?? {})
-  const [caches, setCaches] = createSignal(props.caches?.get?.() ?? {})
 
   onMount(() => {
     const unsubscribe = props.state.subscribe(setView)
-    const unsubscribeSpeeds = props.speeds?.subscribe?.(setSpeeds)
-    const unsubscribeCaches = props.caches?.subscribe?.(setCaches)
     onCleanup(() => {
       unsubscribe()
-      unsubscribeSpeeds?.()
-      unsubscribeCaches?.()
     })
   })
 
-  const line = createMemo(() =>
-    buildPromptLine({
-      ...view(),
-      speed: speedForSession(speeds(), props.sessionID),
-      cache: props.caches ? cacheForSession(caches(), props.sessionID) : undefined,
-    }),
-  )
+  const line = createMemo(() => buildPromptLine(view()))
 
   return <LineText line={line()} theme={props.context.theme} colorMode={props.colorMode} />
 }

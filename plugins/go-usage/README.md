@@ -1,10 +1,10 @@
 # go-usage
 
-OpenCode **Go** plan usage — plus live **output speed** and **cache hit** meters —
-as a single line in the OpenCode V2 CLI **prompt footer**:
+OpenCode **Go** plan usage as a single line in the OpenCode V2 CLI **prompt
+footer**:
 
 ```text
-[H:92% · W:45% · M:44% | C: 87% · ⚡103t/s]
+[H:92% · W:45% · M:44%]
 ```
 
 - `H` — rolling 5-hour meter, `W` — weekly, `M` — monthly (same order as the
@@ -13,34 +13,16 @@ as a single line in the OpenCode V2 CLI **prompt footer**:
   50%, yellow 50–79%, red 80% and above. The brackets and `·` separators stay
   faint and the `H:`/`W:`/`M:` labels stay muted, so the numbers are the
   loudest part of the line.
-- `C: 87%` — cache hit of **this session**: `cache.read / (cache.read + input)`
-  over every step the runtime has counted (writes are a stored miss, so they
-  stay out of the denominator). Green ≥ 80%, plain 50–79%, amber < 50%;
-  `C:   —` until the first step ends.
-- `⚡103t/s` — the live generation speed of the session in the current
-  footer. The field is always present while the meters row is live: it shows
-  `⚡  0t/s` in muted gray when the session is idle, and the value is toned
-  by speed while generating: **pink** ≥ 200 t/s (Dracula `#FF79C6`), **deep
-  green** 150–199 t/s (fixed `#4CAF50`), **green** 100–149 t/s, **amber**
-  60–99 t/s, **red** < 60 t/s — pink and deep green stay fixed in both
-  color modes. It is the first field dropped on narrow terminals.
-  It is an estimate: the runtime exposes no token counters mid-stream, so the
-  plugin converts streamed delta characters with a chars-per-token factor
-  (~3.5 default; Thai text packs ~2.4). Set `tpsFactor` if your language
-  skews the number.
-- Both numbers are padded to a fixed width (`C:  3%` / `C: 87%` / `C:100%`,
-  `⚡  0` / `⚡ 45` / `⚡103`), so a value that gains a digit never shifts the
-  rest of the row.
 - A meter without data renders as `H:—`; with no data at all the line is
   `[H:— · W:— · M:—]`.
 - When the latest refresh failed but values are kept, the line is prefixed with
   a warning `! `: `! [H:92% · W:45% · M:44%]`.
 - Non-ready states always show a short marker: `Go …` (signed in / loading),
-  `Go —` (not connected or no subscription), `Go !` (fetch error). The speed
-  and cache fields only join the ready meters row.
+  `Go —` (not connected or no subscription), `Go !` (fetch error).
 
 No frame, no bars, no sidebar: this plugin owns the `prompt.footer.status` slot
-only.
+only. The live session meters (cache hit, output speed, turn time) live in the
+sibling `turn-stats` plugin, above the prompt.
 
 ## Design
 
@@ -102,9 +84,6 @@ variables are fallbacks (options win).
 | `baseUrl`     | `GO_USAGE_BASE_URL`     | `https://opencode.ai/console` | Console base URL               |
 | `org`         | `GO_USAGE_ORG`          | token org                     | Explicit `x-org-id` override   |
 | `colorMode`   | `GO_USAGE_COLOR_MODE`   | `"mole"`                      | `mole` (fixed palette, like the other CLI plugins) / `theme` |
-| `tps`         | `GO_USAGE_TPS=0`        | `true`                        | Show the live `⚡t/s` field     |
-| `tpsFactor`   | `GO_USAGE_TPS_FACTOR`   | `3.5`                         | Chars per token for the estimate (clamped 1–8) |
-| `cache`       | `GO_USAGE_CACHE=0`      | `true`                        | Show the session cache-hit `C:` field |
 | `openBrowser` | `GO_USAGE_NO_OPEN=1`    | `true`                        | Auto-open the login URL        |
 | `bridge`      | `GO_USAGE_BRIDGE=0`     | `true`                        | Mirror the meters to the local desk box bridge |
 | `bridgeUrl`   | `GO_USAGE_BRIDGE_URL`   | `http://127.0.0.1:7331/v1/usage` | Bridge endpoint             |
@@ -120,9 +99,9 @@ Debug logs: `~/.config/opencode/plugins/go-usage-debug.log` (truncated at
 | `Go …`                      | First fetch in flight                                 |
 | `Go —`                      | No session yet, or the account has no Go subscription |
 | `Go !`                      | Fetch failed and there are no cached values           |
-| `[H:… · W:… · M:… \| C: n% · ⚡nt/s]` | Live values + this session's cache hit and speed |
-| `[H:… · W:… · M:…]`         | Too narrow: `⚡`, then `C`, then `M` were dropped      |
-| `! [H:… · W:… · M:… \| C: n% · ⚡nt/s]` | Refresh failed; last known values are kept |
+| `[H:… · W:… · M:…]`         | Live plan meters                                      |
+| `[H:… · W:…]`               | Too narrow: `M`, then `W` were dropped                |
+| `! [H:… · W:… · M:…]`       | Refresh failed; last known values are kept            |
 
 ## How it gets the data
 
@@ -132,16 +111,6 @@ Debug logs: `~/.config/opencode/plugins/go-usage-debug.log` (truncated at
 - Meters come from `GET https://opencode.ai/console/api/go/status`, the route
   the Console SPA renders from. `GO_USAGE_BASE_URL` / the `baseUrl` option
   can point elsewhere if it ever moves.
-- The speed meter follows the TUI event stream
-  (`context.data.listen`): `session.text.delta` / `session.reasoning.delta`
-  feed a 2-second sliding window, `session.step.started`/`execution.*` open
-  and close it, and the value is published at most twice a second. The footer
-  only shows the rate of the session it renders (the slot's `sessionID`).
-- Cache hit uses the same stream: `session.step.ended` carries the per-step
-  token counters (`input`, `cache.read`, `cache.write`), which are summed per
-  session. The map is bounded to 32 sessions (least recently used evicted), so
-  a long-lived TUI never grows it without limit; a session that has not ended a
-  step yet shows `C:   —`.
 - API keys (`sk-…` in `auth.json`) do not work on the Console API; only the
   device-flow session works. The plugin never reads your other credentials.
 
@@ -169,16 +138,11 @@ node test/harness.mjs   # or: bun run test
 ```
 
 Offline only: H/W/M line rendering, per-meter tones, missing meters, stale
-prefix, every phase, width clipping, the cache-hit `C:` field (hit math,
-per-session accumulation and LRU eviction), the fixed-width padding that keeps
-the row still, detail dialog text,
-smart command routing, device-flow state machine (`authorization_pending`,
-`slow_down` backoff, expiry, cancel, refresh), 401 → refresh → retry,
-options/env resolution, the runtime event feed (directory filter, speed/cache
-mapping, replay dedupe, disabled switches, fetch timeout), live speed tracker
-math (window, freshness, per-session isolation, factor clamping) and its footer
-field/tier tones, install helper patching, packaging, and source hygiene. Must
-print `ALL TESTS PASSED (N assertions)`.
+prefix, every phase, width clipping, detail dialog text, smart command
+routing, device-flow state machine (`authorization_pending`, `slow_down`
+backoff, expiry, cancel, refresh), 401 → refresh → retry, options/env
+resolution, fetch timeout, install helper patching, packaging, and source
+hygiene. Must print `ALL TESTS PASSED (N assertions)`.
 
 ## Notes
 
@@ -186,11 +150,6 @@ print `ALL TESTS PASSED (N assertions)`.
   usage; it never subscribes, cancels, or changes billing.
 - The device login is the same one the OpenCode CLI itself uses for its Console
   account connection; sessions are independent per client.
-- The prompt footer is one narrow row, so the line is clipped (45 cells with
-  the cache field, 36 without); trailing fields are dropped whole (`⚡` first,
-  then `C`, then `M`, then `W`) and the `[...]` brackets are always kept
-  balanced.
-- The speed number is an estimate derived from streamed characters, not the
-  provider's token counter (that only arrives when a step ends). Treat it as
-  a relative indicator; the built-in assistant footer still shows the exact
-  per-message average.
+- The prompt footer is one narrow row, so the line is clipped (36 cells);
+  trailing meters are dropped whole (`M` first, then `W`) and the `[...]`
+  brackets are always kept balanced.

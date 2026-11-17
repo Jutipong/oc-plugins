@@ -1,4 +1,4 @@
-// go-usage — live output-speed tracker (tokens per second), pure.
+// turn-stats — live output-speed tracker (tokens per second), pure.
 //
 // The runtime exposes text/reasoning deltas while a step streams, but no
 // token counters until the step ends (verified by probe on 2.2.5). The
@@ -22,7 +22,7 @@ export function clampCharsPerToken(value, fallback = DEFAULT_CHARS_PER_TOKEN) {
   return Math.min(MAX_CHARS_PER_TOKEN, number)
 }
 
-/** One decimal is plenty for a footer meter. */
+/** One decimal is plenty for a prompt meter. */
 function roundRate(value) {
   return Math.round(value * 10) / 10
 }
@@ -35,7 +35,7 @@ function roundRate(value) {
  * end(sid)              — the turn ended: forget the session.
  * snapshot(at)          — `{ [sessionID]: tps }` for sessions that streamed
  *                          within `freshMs`; ended or quiet sessions are
- *                          omitted so the footer hides instead of lying.
+ *                          omitted so the line hides instead of lying.
  */
 export function createSpeedTracker({
   charsPerToken = DEFAULT_CHARS_PER_TOKEN,

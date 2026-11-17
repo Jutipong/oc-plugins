@@ -1,7 +1,6 @@
 // go-usage — option/env resolution (pure).
 
 import { DEFAULT_BASE_URL, normalizeBaseUrl } from "./auth.mjs"
-import { clampCharsPerToken } from "./tps.mjs"
 
 export const DEFAULT_INTERVAL_SEC = 300
 export const MIN_INTERVAL_SEC = 15
@@ -45,9 +44,6 @@ export function resolveOptions({ options = {}, env = {} } = {}) {
         ? env.GO_USAGE_COLOR_MODE
         : "mole",
     openBrowser: options.openBrowser !== false && !truthyFlag(env.GO_USAGE_NO_OPEN),
-    tps: options.tps !== false && !falsyFlag(env.GO_USAGE_TPS),
-    tpsCharsPerToken: clampCharsPerToken(options.tpsFactor ?? env.GO_USAGE_TPS_FACTOR),
-    cache: options.cache !== false && !falsyFlag(env.GO_USAGE_CACHE),
     debug: options.debug === true || truthyFlag(env.GO_USAGE_DEBUG),
     bridge: options.bridge !== false && !falsyFlag(env.GO_USAGE_BRIDGE),
     bridgeUrl: normalizeBridgeUrl(options.bridgeUrl ?? env.GO_USAGE_BRIDGE_URL),

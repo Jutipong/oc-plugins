@@ -1,0 +1,75 @@
+// turn-stats — pure formatting helpers (no I/O, no OpenTUI).
+
+/** Number / bigint / numeric string -> number, or null when unusable. */
+export function toNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null
+  if (typeof value === "bigint") return Number(value)
+  if (typeof value === "string" && value.trim() !== "") {
+    const parsed = Number(value)
+    return Number.isFinite(parsed) ? parsed : null
+  }
+  return null
+}
+
+export function displayWidth(text) {
+  return [...String(text ?? "")].length
+}
+
+/** Unicode-aware truncate with an ellipsis. */
+export function truncate(text, width) {
+  const value = text == null ? "" : String(text)
+  const cells = Math.max(0, Math.round(width))
+  const chars = [...value]
+  if (chars.length <= cells) return value
+  if (cells <= 1) return "…"
+  return `${chars.slice(0, cells - 1).join("")}…`
+}
+
+/**
+ * Live output speed -> compact label: `"45"`, `"7.4"` below 10, `"0"` when
+ * idle and `"—"` when unusable. One decimal only under 10 so the cell count
+ * stays small.
+ */
+export function formatTps(value) {
+  const number = toNumber(value)
+  if (number == null) return "—"
+  if (number <= 0) return "0"
+  return number < 9.95 ? number.toFixed(1) : String(Math.round(number))
+}
+
+/** Field width that keeps the speed number from shifting the row. */
+export const SPEED_BADGE_WIDTH = 3
+
+/** Speed label padded to a fixed width (`"  0"`, `"7.4"`, `" 45"`, `"103"`). */
+export function formatTpsField(value) {
+  return formatTps(value).padStart(SPEED_BADGE_WIDTH)
+}
+
+/** Field width that keeps `3%` / `87%` / `100%` / `—` the same size. */
+export const CACHE_BADGE_WIDTH = 4
+
+/** Cache-hit label padded to a fixed width (`"  3%"`, `" 87%"`, `"100%"`, `"   —"`). */
+export function formatCacheBadge(percentValue) {
+  const value = toNumber(percentValue)
+  if (value == null) return "—".padStart(CACHE_BADGE_WIDTH)
+  const clamped = Math.min(100, Math.max(0, Math.round(value)))
+  return `${clamped}%`.padStart(CACHE_BADGE_WIDTH)
+}
+
+/** Cache-hit buckets: higher is better — >= 80 success, >= 50 base, else warning. */
+export function toneForCacheHit(percentValue) {
+  const value = toNumber(percentValue) ?? 0
+  if (value >= 80) return "success"
+  if (value >= 50) return "base"
+  return "warning"
+}
+
+/** Speed buckets: >= 200 pink, >= 150 hot, >= 100 success, >= 60 warning, else danger. */
+export function toneForTps(value) {
+  const number = toNumber(value) ?? 0
+  if (number >= 200) return "pink"
+  if (number >= 150) return "hot"
+  if (number >= 100) return "success"
+  if (number >= 60) return "warning"
+  return "danger"
+}

@@ -1,27 +1,13 @@
 // go-usage — view state -> the prompt-footer line.
 //
 // The prompt footer is a single narrow row, so the model renders one short
-// `[H:92% · W:45% · M:44% | C: 87% · ⚡103t/s]` line (H = rolling 5h, W =
-// weekly, M = monthly, C = session cache hit) with per-field threshold tones
-// and faint brackets/separators. The cache group (`C`) and the live speed
-// group (`⚡`) are always present on the ready row when enabled; both numbers
-// are padded to a fixed width so a value change never shifts the row. Pure so
-// the harness can assert every state.
+// `[H:92% · W:45% · M:44%]` line (H = rolling 5h, W = weekly, M = monthly)
+// with per-field threshold tones and faint brackets/separators. Pure so the
+// harness can assert every state.
 
-import {
-  displayWidth,
-  formatCacheBadge,
-  formatReset,
-  formatTpsField,
-  toneForCacheHit,
-  toneForMeter,
-  toneForTps,
-  toNumber,
-  truncate,
-} from "./format.mjs"
+import { displayWidth, formatReset, toneForMeter, truncate } from "./format.mjs"
 
 const PROMPT_WIDTH = 36
-const PROMPT_WIDTH_CACHE = 45
 
 /** Footer meters in display order; the labels mirror the Console cards. */
 export const STATUS_METERS = [
@@ -62,8 +48,7 @@ const PHASE_LABELS = {
 /**
  * Join field groups with their own faint separators. Each group is a list of
  * segments so a label (`H:`) and its value (`92%`) can carry different tones;
- * `sep` is what precedes the group (`" · "` between meters, `" | "` before
- * the session fields).
+ * `sep` is what precedes the group (`" · "` between meters).
  */
 function groupsToLine(groups, count = groups.length) {
   const line = []
@@ -89,67 +74,17 @@ function bracketLine(groups, budget) {
 }
 
 /**
- * Pick the live speed for the session a footer is rendering. The tracker
- * publishes one value per session; a footer only shows its own session.
- */
-export function speedForSession(speeds, sessionID) {
-  if (!speeds || !sessionID) return null
-  const value = toNumber(speeds[sessionID])
-  return value != null && value > 0 ? value : null
-}
-
-/**
- * Pick the cache stats for the session a footer is rendering. `null` means
- * "cache field is on but this session has no counters yet".
- */
-export function cacheForSession(caches, sessionID) {
-  if (!caches || !sessionID) return null
-  const entry = caches[sessionID]
-  return entry && typeof entry === "object" ? entry : null
-}
-
-/** `C: 87%` — fixed width so the field never shifts the row. */
-function cacheGroup(cache) {
-  const percent = toNumber(cache?.percent)
-  return {
-    sep: " | ",
-    parts: [
-      seg("C:", "muted"),
-      seg(formatCacheBadge(percent), percent == null ? "muted" : toneForCacheHit(percent)),
-    ],
-  }
-}
-
-/** `⚡103t/s` — the number padded to a fixed width while generating. */
-function speedGroup(speed) {
-  const value = toNumber(speed)
-  const shown = value != null && value > 0 ? value : 0
-  return {
-    sep: " · ",
-    parts: [
-      seg("⚡", "muted"),
-      seg(formatTpsField(shown), shown > 0 ? toneForTps(shown) : "muted"),
-      seg("t/s", "muted"),
-    ],
-  }
-}
-
-/**
  * `prompt.footer.status` line.
  *
- * view: { phase, status, stale, error, fetchedAt, speed, cache }
+ * view: { phase, status, stale, error, fetchedAt }
  *   phase: "checking" | "loading" | "ready" | "error" | "absent" | "disconnected"
- *   speed: live tokens/second while this session is generating, else null
- *   cache: `{ percent }` for this session, `null` when it has no counters yet,
- *          or `undefined` when the cache field is disabled
  *
  * options:
- *   width — max cells (default 45 with the cache field, 36 without)
+ *   width — max cells (default 36)
  */
 export function buildPromptLine(view = {}, options = {}) {
   const phase = view.phase ?? "checking"
-  const cacheEnabled = view.cache !== undefined
-  const width = Math.max(8, Math.round(options.width ?? (cacheEnabled ? PROMPT_WIDTH_CACHE : PROMPT_WIDTH)))
+  const width = Math.max(8, Math.round(options.width ?? PROMPT_WIDTH))
 
   if (phase === "ready" && view.status) {
     const meters = new Map((view.status.meters ?? []).map((entry) => [entry.key, entry.meter]))
@@ -161,8 +96,6 @@ export function buildPromptLine(view = {}, options = {}) {
           : [seg(`${prefix}:`, "muted"), seg("—", "muted")],
       }
     })
-    if (cacheEnabled) groups.push(cacheGroup(view.cache))
-    groups.push(speedGroup(view.speed))
     const prefix = view.stale ? [seg("! ", "warning")] : []
     const budget = Math.max(0, width - lineWidth(prefix))
     return [...prefix, ...bracketLine(groups, budget)]
